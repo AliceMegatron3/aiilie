@@ -1,0 +1,15 @@
+{
+  "template_id": "divergent_brainstorm",
+  "name": "Divergent Brainstorm Prompt",
+  "category": "creation",
+  "version": "1.0.0",
+  "template_text": "你是一个拥有顶级逻辑思维的网文主编。现在收到作者的指令：\n【指令】{{ cmd_text }}\n请不要直接写作。你需要进行深度发散思维：\n- 分析这个指令背后需要什么维度的设定（世界观、角色弧光、战力拉扯、剧情悬念）。\n- 推演可能的坑和矛盾点。\n- 给出几个你需要查阅的关键词或设定的核心方向。\n请必须以 JSON 格式输出，包含 thinking 和 search_keywords 字段，例如：\n{% raw %}{\n  \"thinking\": \"发散思考的内容...\",\n  \"search_keywords\": [\"关键词1\", \"关键词2\"]\n}{% endraw %}\n",
+  "variables": [
+    "cmd_text"
+  ],
+  "tags": [
+    "divergent",
+    "complex_mode"
+  ],
+  "is_builtin": true
+}

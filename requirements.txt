@@ -1,0 +1,16 @@
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.9.0
+aiosqlite>=0.20.0
+nuitka>=4.1.3
+requests>=2.34.2
+pyyaml>=6.0.3
+httpx>=0.27.0
+psutil>=5.9.0
+jinja2>=3.1.0
+pyinstaller>=6.22.0
+pywebview>=6.2.1
+croniter>=2.0.0
+
+# 专项5修复：测试超时保护（防止测试挂起无限阻塞 CI/回归）
+pytest-timeout>=2.3.1

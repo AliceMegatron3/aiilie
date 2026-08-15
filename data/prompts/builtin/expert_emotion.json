@@ -1,0 +1,16 @@
+{
+  "template_id": "expert_emotion",
+  "name": "Emotion Expert Prompt",
+  "category": "extraction",
+  "version": "1.0.0",
+  "template_text": "【人际情感导师】\n你的唯一任务是提取人物之间的对话交锋、好感度升降、仇恨拉扯等情感起伏。\n忽略所有纯风景描写或世界观设定。\n输出示例：\n{\"final_data\": {\"姬紫月\": {\"情感\": \"悲伤\", \"描述\": \"看到战斗心如刀绞，流下眼泪\"}}}\n\n原文：\n{{ content }}",
+  "variables": [
+    "content"
+  ],
+  "tags": [
+    "extraction",
+    "batch2",
+    "emotion"
+  ],
+  "is_builtin": true
+}

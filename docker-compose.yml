@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  backend:
+    build: .
+    container_name: no0_ai_backend
+    ports:
+      - "8000:8000"
+    volumes:
+      # 将宿主机的 data 目录挂载到容器内，保证配置、日志、SQLite 数据持久化
+      - ./data:/app/data
+      - ./config:/app/config
+    environment:
+      # 可在此处注入并覆盖 config.yaml 的配置，例如：
+      # - AIILIE_DEEPSEEK_API_KEY=your_key_here
+      - TZ=Asia/Shanghai
+      # 缓存开关适配（Patch A 分布式预备）：若设为 redis，则使用 redis 容器；设为 memory 则降级为本机内存
+      - CACHE_BACKEND=${CACHE_BACKEND:-memory}
+      - REDIS_URL=redis://redis:6379/0
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_started
+
+  redis:
+    image: redis:7-alpine
+    container_name: no0_ai_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./data/redis:/data
+    restart: unless-stopped
+    # 如果系统只想运行单体版本，可以通过 `docker compose up backend` 或修改 CACHE_BACKEND=memory 来忽略 redis

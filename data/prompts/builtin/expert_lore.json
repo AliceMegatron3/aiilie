@@ -1,0 +1,16 @@
+{
+  "template_id": "expert_lore",
+  "name": "Lore Expert Prompt",
+  "category": "extraction",
+  "version": "1.0.0",
+  "template_text": "【设定纪检委】\n你的唯一任务是提取新的世界观设定、地点、派系、法宝、境界等静态信息（Info Cards）。\n不要提取任何对话或情感起伏。\n输出示例：\n{\"final_data\": {\"地点\": \"灵台山\", \"法宝\": \"天帝圣剑\"}}\n\n原文：\n{{ content }}",
+  "variables": [
+    "content"
+  ],
+  "tags": [
+    "extraction",
+    "batch2",
+    "lore"
+  ],
+  "is_builtin": true
+}

@@ -1,0 +1,8 @@
+{
+  "template_id": "emotion_generate_render_single",
+  "name": "Standard Emotion Generation Render",
+  "category": "EmotionEngine",
+  "template_text": "Based on the provided emotion frame, write the next segment of the novel.\n\nCurrent Frame: {{ current_frame | tojson }}\nContext Frames: {{ context_frames | tojson }}\n\nEnsure you reflect the wave level and independent emotions correctly.",
+  "variables": ["current_frame", "context_frames"],
+  "tags": ["emotion"]
+}

@@ -1,0 +1,8 @@
+{
+  "template_id": "emotion_chaotic_render",
+  "name": "Chaotic Emotion Render (Level 7-9)",
+  "category": "EmotionEngine",
+  "template_text": "You are writing in CHAOTIC mode (wave level 7-9). DO NOT explicitly describe joy, anger, or sorrow. Show emotions strictly through the environment, objects, and intense actions. DO NOT explicitly state character thoughts.\n\nCurrent Frame: {{ current_frame | tojson }}\nContext Frames: {{ context_frames | tojson }}\n",
+  "variables": ["current_frame", "context_frames"],
+  "tags": ["emotion", "chaotic"]
+}

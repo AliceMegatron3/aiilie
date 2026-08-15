@@ -1,0 +1,8 @@
+{
+  "template_id": "emotion_quantify_single",
+  "name": "Single Fragment Emotion Quantifier",
+  "category": "EmotionEngine",
+  "template_text": "Analyze the following text and determine its emotional wave_level (1-9), mode (single, mixed, chaotic), and extract scene, character_inner, and conflict emotions.\n\nText: {{ text }}",
+  "variables": ["text"],
+  "tags": ["emotion"]
+}

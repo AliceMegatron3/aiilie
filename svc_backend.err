@@ -1,0 +1,93 @@
+C:\Users\11482\Documents\aiilie : �޷�����C:\Users\11482\Documents\aiilie����ʶ��Ϊ cmdlet���������ű��ļ�������г���
+�����ơ��������Ƶ�ƴд���������·������ȷ��·����ȷ��Ȼ������һ�Ρ�
+����λ�� ��:1 �ַ�: 63
++ ... ments\aiilie; $env:PYTHONPATH=C:\Users\11482\Documents\aiilie; & C:\U ...
++                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (C:\Users\11482\Documents\aiilie:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CommandNotFoundException
+ 
+2026-08-14 23:48:50,884 [INFO] root: 全局统一日志系统 (Centralized Logging) 初始化完成。
+2026-08-14 23:48:51,149 [INFO] services.prompt_template_manager: 📝 成功加载 17 个提示词模板。
+2026-08-14 23:48:51,325 [INFO] ai_v4_main: 前端静态资源已挂载: C:\Users\11482\Documents\aiilie\frontend\dist
+INFO:     Started server process [22452]
+INFO:     Waiting for application startup.
+2026-08-14 23:48:51,386 [INFO] ai_v4_main: 本地Ollama服务校验通过
+2026-08-14 23:48:51,387 [INFO] ai_v4_bootstrap: ====== 正在启动 No.0 AI V4.0 系统 ======
+2026-08-14 23:48:51,387 [INFO] core.database: 正在初始化数据库: C:\Users\11482\AppData\Roaming\No0_AI_V4\data\tasks.db
+2026-08-14 23:48:51,396 [INFO] core.db_pool: 创建新数据库连接: C:\Users\11482\AppData\Roaming\No0_AI_V4\data\tasks.db (当前总数: 1)
+2026-08-14 23:48:51,398 [INFO] core.database: 数据库初始化完成, 后台写入队列已启动
+2026-08-14 23:48:51,399 [INFO] ai_v4_bootstrap: [Bootstrap] 系统库表巡检完毕，状态正常。
+2026-08-14 23:48:51,399 [INFO] ai_v4_bootstrap: [Bootstrap] 底座设施装配完成 (DB + TaskManager)
+2026-08-14 23:48:51,400 [INFO] services.temp_file_manager: 临时文件管理器初始化: temp=C:\Users\11482\AppData\Roaming\No0_AI_V4\data\temp, persistent=C:\Users\11482\AppData\Roaming\No0_AI_V4\data\persistent, 配额=2147483648字节, 启动清理=True
+2026-08-14 23:48:51,401 [INFO] services.tail_context_manager: 尾巴管理器初始化: root=C:\Users\11482\AppData\Roaming\No0_AI_V4\data\temp\tails, 阈值=65536字节, 落盘开关=True, TTL=86400秒
+2026-08-14 23:48:51,402 [INFO] services.segment_pipeline: 分段流水线初始化: DB载荷阈值=10240字节, 允许大载荷入库=False, 尾巴管理器=已挂载
+2026-08-14 23:48:51,404 [INFO] services.task_manager: 任务管理器初始化完成，恢复了 0 个待处理任务
+2026-08-14 23:48:51,404 [INFO] services.temp_file_manager: 启动孤儿目录扫描完成，清理 0 个遗留目录
+2026-08-14 23:48:51,405 [INFO] ai_v4_bootstrap: [Bootstrap] 批次1分段执行引擎装配完成
+2026-08-14 23:48:51,405 [INFO] ai_v4_bootstrap: [Bootstrap] 未启用云端开关或缺少凭据：云端功能禁用，走本地兜底。
+2026-08-14 23:48:51,406 [INFO] services.optimization_applier: 系统优化规则表与通用技能模板表初始化完成
+2026-08-14 23:48:51,407 [INFO] services.indexer: 正在初始化书库索引: C:\Users\11482\AppData\Roaming\No0_AI_V4\data\library_index.db
+2026-08-14 23:48:51,416 [INFO] services.indexer: 书库索引初始化完成
+2026-08-14 23:48:51,421 [INFO] services.project_manager: 项目管理数据表 (author_projects, project_docs) 初始化完成
+2026-08-14 23:48:51,422 [INFO] services.version_control: [VersionControl] branches / document_versions 表初始化完成
+2026-08-14 23:48:51,423 [INFO] services.reflection_trigger: 反思会话元数据表 (reflection_sessions) 初始化完成
+2026-08-14 23:48:51,423 [INFO] services.reflection_trigger: 启动反思定时触发器，Cron: 0 2 * * *
+2026-08-14 23:48:51,424 [INFO] ai_v4_bootstrap: [Bootstrap] 反思系统装配完成
+2026-08-14 23:48:51,426 [INFO] core.task_manager: 启动了 1 个后台任务 Worker
+2026-08-14 23:48:51,426 [INFO] ai_v4_bootstrap: [Bootstrap] 核心任务 Worker 已启动 (concurrency=1, 量化/文档学习分派)
+2026-08-14 23:48:51,426 [INFO] ai_v4_bootstrap: [Bootstrap] 量化核心与发散引擎装配完成
+2026-08-14 23:48:51,426 [INFO] ai_v4_bootstrap: [Bootstrap] feature.novel_multi_agent_enable=false，跳过多智能体装配
+2026-08-14 23:48:51,430 [INFO] services.load_estimator: 负载预估器初始化: indexer=已挂载, project_manager=已挂载
+2026-08-14 23:48:51,430 [INFO] ai_v4_bootstrap: [Bootstrap] 总控中枢装配完成
+2026-08-14 23:48:51,432 [INFO] core.prompt_audit: [PromptAudit] ✅ 硬编码 Prompt 审计通过：批次2/3/4/情感引擎业务模块均已迁移至 PromptTemplateManager
+2026-08-14 23:48:51,712 [INFO] core.blueprint: [Blueprint] 架构镜像生成完成: 128 模块 / 5 路由 / 11 视图
+2026-08-14 23:48:51,712 [INFO] services.system_monitor: [SystemMonitor] 后台采样协程已启动（临时目录每 60s 刷新）
+2026-08-14 23:48:51,713 [INFO] ai_v4_bootstrap: [Bootstrap] 后台协程托管完毕 (reflection / queue / batch1 / emotion-archive / monitor)
+2026-08-14 23:48:51,713 [INFO] ai_v4_bootstrap: 系统初始化完成，全部路由与底座处于 Standby 状态。
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:49755 - "WebSocket /api/v1/ws?session_id=default_global" [accepted]
+INFO:     connection open
+2026-08-15 00:21:46,761 [INFO] api.websocket: WebSocket 客户端已连接 (Session: default_global). 当前房间连接数: 1
+2026-08-15 00:21:46,769 [WARNING] core.security: [Security] 未携带鉴权头，以匿名身份访问（开发模式放行）: /api/v1/projects
+INFO:     127.0.0.1:65267 - "WebSocket /api/v1/ws?session_id=default_global" [accepted]
+INFO:     connection open
+2026-08-15 00:21:46,780 [INFO] api.websocket: WebSocket 客户端已连接 (Session: default_global). 当前房间连接数: 2
+2026-08-15 00:21:46,781 [WARNING] core.security: [Security] 未携带鉴权头，以匿名身份访问（开发模式放行）: /api/v1/projects
+2026-08-15 00:21:46,939 [WARNING] core.security: [Security] 未携带鉴权头，以匿名身份访问（开发模式放行）: /api/v1/behavior/events
+2026-08-15 00:21:46,946 [WARNING] core.security: [Security] 未携带鉴权头，以匿名身份访问（开发模式放行）: /api/v1/projects/proj_258634d1/docs
+2026-08-15 00:31:17,504 [INFO] api.websocket: WebSocket 客户端已断开 (Session: default_global). 当前房间连接数: 1
+2026-08-15 00:31:17,505 [INFO] api.websocket: WebSocket 客户端已断开 (Session: default_global). 当前房间连接数: 0
+INFO:     127.0.0.1:50687 - "WebSocket /api/v1/ws?session_id=default_global" [accepted]
+INFO:     connection open
+2026-08-15 00:31:17,643 [INFO] api.websocket: WebSocket 客户端已连接 (Session: default_global). 当前房间连接数: 1
+2026-08-15 00:31:17,660 [WARNING] core.security: [Security] 未携带鉴权头，以匿名身份访问（开发模式放行）: /api/v1/sessions/list
+2026-08-15 00:31:17,663 [ERROR] services.session_pool: 加载磁盘会话失败 3db20619-3e2b-46df-869c-c3e140d04b0c: [WinError 32] 另一个程序正在使用此文件，进程无法访问。: 'C:\\Users\\11482\\AppData\\Roaming\\No0_AI_V4\\data\\sessions\\3db20619-3e2b-46df-869c-c3e140d04b0c.json'
+2026-08-15 00:31:17,668 [ERROR] services.session_pool: 加载磁盘会话失败 edd28964-b33f-4cbb-b093-d2f969f55fa6: [WinError 32] 另一个程序正在使用此文件，进程无法访问。: 'C:\\Users\\11482\\AppData\\Roaming\\No0_AI_V4\\data\\sessions\\edd28964-b33f-4cbb-b093-d2f969f55fa6.json'
+2026-08-15 00:31:17,672 [WARNING] core.security: [Security] 未携带鉴权头，以匿名身份访问（开发模式放行）: /api/v1/sessions/stats
+2026-08-15 00:31:17,677 [WARNING] core.security: [Security] 未携带鉴权头，以匿名身份访问（开发模式放行）: /api/v1/system/queue
+INFO:     127.0.0.1:62324 - "WebSocket /api/v1/ws?session_id=default_global" [accepted]
+INFO:     connection open
+2026-08-15 00:31:17,680 [INFO] api.websocket: WebSocket 客户端已连接 (Session: default_global). 当前房间连接数: 2
+2026-08-15 00:31:17,681 [WARNING] core.security: [Security] 未携带鉴权头，以匿名身份访问（开发模式放行）: /api/v1/projects
+2026-08-15 00:31:17,705 [WARNING] core.security: [Security] 未携带鉴权头，以匿名身份访问（开发模式放行）: /api/v1/projects
+2026-08-15 00:31:17,761 [WARNING] core.security: [Security] 未携带鉴权头，以匿名身份访问（开发模式放行）: /api/v1/system/sessions/28ecae17-9888-4f47-bb73-0f694206bf67/chat-history
+2026-08-15 00:31:17,778 [WARNING] core.security: [Security] 未携带鉴权头，以匿名身份访问（开发模式放行）: /api/v1/sessions/list
+2026-08-15 00:31:17,779 [ERROR] services.session_pool: 加载磁盘会话失败 3db20619-3e2b-46df-869c-c3e140d04b0c: [WinError 32] 另一个程序正在使用此文件，进程无法访问。: 'C:\\Users\\11482\\AppData\\Roaming\\No0_AI_V4\\data\\sessions\\3db20619-3e2b-46df-869c-c3e140d04b0c.json'
+2026-08-15 00:31:17,780 [ERROR] services.session_pool: 加载磁盘会话失败 edd28964-b33f-4cbb-b093-d2f969f55fa6: [WinError 32] 另一个程序正在使用此文件，进程无法访问。: 'C:\\Users\\11482\\AppData\\Roaming\\No0_AI_V4\\data\\sessions\\edd28964-b33f-4cbb-b093-d2f969f55fa6.json'
+2026-08-15 00:31:17,793 [WARNING] core.security: [Security] 未携带鉴权头，以匿名身份访问（开发模式放行）: /api/v1/behavior/events
+2026-08-15 00:31:17,795 [WARNING] core.security: [Security] 未携带鉴权头，以匿名身份访问（开发模式放行）: /api/v1/projects/proj_258634d1/docs
+2026-08-15 00:33:15,373 [WARNING] core.security: [Security] 未携带鉴权头，以匿名身份访问（开发模式放行）: /api/v1/projects
+2026-08-15 00:33:15,379 [WARNING] core.security: [Security] 未携带鉴权头，以匿名身份访问（开发模式放行）: /api/v1/system/status
+2026-08-15 00:33:15,389 [WARNING] core.security: [Security] 未携带鉴权头，以匿名身份访问（开发模式放行）: /api/v1/system/command
+2026-08-15 00:33:15,390 [INFO] services.global_router: [GlobalRouter] 收到原始指令: 帮我梳理一下大纲
+2026-08-15 00:33:15,391 [INFO] services.load_estimator: [LOAD_EST] 场景判定: cmd=SHORT(8字符) external=EXTERNAL_LOW → recommend=no_split (project=None book=None)
+2026-08-15 00:33:15,392 [INFO] services.priority_queue: [PriorityTaskQueue] 任务入列: create_5826889b, 优先级等级: LV4
+2026-08-15 00:33:15,392 [INFO] services.priority_queue: [PriorityTaskQueue] 任务出列准备执行: create_5826889b
+2026-08-15 00:33:15,392 [INFO] ai_v4_bootstrap: [QueueWorker] 开始执行任务 create_5826889b
+2026-08-15 00:33:15,392 [INFO] services.global_router: [GlobalRouter] 将创作请求移交底层持久化管线: create_5826889b，配置[rapid, split=False]
+2026-08-15 00:33:15,393 [INFO] services.dispatcher: 调度模式 [Rapid]: 优先调用本地轻量模型急速响应...
+2026-08-15 00:33:33,986 [INFO] httpx: HTTP Request: POST http://127.0.0.1:11434/api/generate "HTTP/1.1 200 OK"
+2026-08-15 00:33:33,991 [INFO] services.session_pool: ✨ 创建会话: f5ab71df-a537-48ef-b504-ced8daa31689 (Model: default, Branch: None)
+2026-08-15 00:33:33,994 [WARNING] api.websocket: Session temp_a54df8ae 不存在活动 WebSocket 连接, 丢弃消息.
+2026-08-15 00:33:33,995 [INFO] ai_v4_bootstrap: [QueueWorker] 任务 create_5826889b 执行完毕

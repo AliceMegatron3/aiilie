@@ -1,0 +1,784 @@
+"""
+core/bootstrap.py — 应用生命周期分模块装配（架构优化）
+========================================================
+将原先堆叠在 main.py lifespan 中的约 200 行初始化逻辑拆分为
+独立装配函数，职责单一、按需加载、失败可定位：
+
+    setup_base              → 底座设施（DB / TaskManager / 建表巡检）
+    setup_batch1_engine     → 批次1分段执行引擎全链路
+    setup_llm_client        → 全局 LLM 适配器（密钥统一从 config_manager 读取）
+    setup_reflection        → 反思系统（提取器 / 优化应用器 / 触发器）
+    setup_quantification    → 量化核心（注册表 / 量化器 / 调度器 / 发散引擎）
+    setup_control_center    → 总控中枢（状态 / 守卫 / 队列 / 路由器）
+    start_background_tasks  → 后台协程托管
+    create_lifespan         → 组装为 FastAPI lifespan 上下文管理器
+
+main.py 仅保留：应用实例化 + 中间件 + 异常处理 + 路由挂载。
+"""
+from __future__ import annotations
+
+import asyncio
+import logging
+from contextlib import asynccontextmanager
+from typing import Any, AsyncIterator
+
+from fastapi import FastAPI
+
+from core.config_manager import config_manager
+from core.database import DatabaseManager
+from core.task_manager import TaskManager
+from core.path_resolver import get_temp_root
+from core.security import is_cloud_enabled
+
+logger = logging.getLogger("ai_v4_bootstrap")
+
+# 后台协程空闲轮询间隔（秒）
+_IDLE_POLL_SECONDS = 0.2
+# 反思自动巡检间隔（秒）
+_AUTO_REFLECTION_INTERVAL = 3600
+# 情感帧旧元数据归档巡检间隔（秒）
+_EMOTION_ARCHIVE_INTERVAL = 3600
+
+
+# ==========================================
+# 底座设施
+# ==========================================
+async def setup_base(app: FastAPI) -> None:
+    """装配数据库、任务管理器并完成建表巡检。"""
+    db = DatabaseManager()
+    await db.initialize()
+    app.state.db = db
+
+    task_manager = TaskManager(db)
+    app.state.task_manager = task_manager
+
+    await _init_database_tables(db)
+    logger.info("[Bootstrap] 底座设施装配完成 (DB + TaskManager)")
+
+
+async def _init_database_tables(db: DatabaseManager) -> None:
+    """巡检并自动创建反思系统依赖库表（通用兜底）。"""
+    await db.conn.execute("""
+    CREATE TABLE IF NOT EXISTS reflection_sessions (
+        session_id TEXT PRIMARY KEY,
+        start_time REAL NOT NULL,
+        end_time TEXT,
+        status TEXT NOT NULL,
+        trigger_type TEXT NOT NULL,
+        report_path TEXT,
+        summary TEXT
+    )
+    """)
+    await db.conn.execute("""
+    CREATE TABLE IF NOT EXISTS optimization_rules (
+        rule_id TEXT PRIMARY KEY,
+        scope TEXT NOT NULL,
+        condition TEXT NOT NULL,
+        action TEXT NOT NULL,
+        confidence REAL NOT NULL,
+        is_active INTEGER DEFAULT 1,
+        created_at REAL NOT NULL,
+        feedback_score REAL DEFAULT 0.0
+    )
+    """)
+    await db.conn.execute("""
+    CREATE TABLE IF NOT EXISTS universal_skills (
+        skill_id TEXT PRIMARY KEY,
+        type TEXT NOT NULL,
+        name TEXT NOT NULL,
+        content TEXT NOT NULL,
+        applicability TEXT NOT NULL,
+        source_cards TEXT,
+        created_at REAL NOT NULL
+    )
+    """)
+    await db.conn.commit()
+    logger.info("[Bootstrap] 系统库表巡检完毕，状态正常。")
+
+
+# ==========================================
+# 批次1 分段执行引擎
+# ==========================================
+async def setup_batch1_engine(app: FastAPI) -> None:
+    """装配 CommandSplitter → SegmentPipeline → tail 接力 → ResultMerger 全链路。"""
+    from services.command_splitter import CommandSplitter
+    from services.segment_pipeline import SegmentPipeline
+    from services.result_merger import ResultMerger
+    from services.temp_file_manager import TempFileManager
+    from services.tail_context_manager import TailContextManager
+    from services.task_manager import TaskManager as Batch1TaskManager
+
+    db: DatabaseManager = app.state.db
+
+    temp_manager = TempFileManager(
+        temp_root=get_temp_root(),
+        max_size_bytes=(
+            config_manager.get_int("task.temp_max_size_gb", 2) * 1024 ** 3
+            if config_manager.get("task.temp_max_size_gb", 2) else None
+        ),
+        cleanup_orphan_on_start=config_manager.get_bool(
+            "task.cleanup_orphan_on_start", True
+        ),
+    )
+    tail_manager = TailContextManager(
+        temp_root=get_temp_root(),
+        memory_threshold_bytes=config_manager.get_int(
+            "task.tail_memory_threshold_bytes", 64 * 1024
+        ),
+        enable_disk_offload=config_manager.get_bool(
+            "task.enable_tail_disk_offload", True
+        ),
+        ttl_seconds=config_manager.get("task.tail_ttl_seconds", 86400),
+    )
+    pipeline = SegmentPipeline(db, temp_manager, tail_manager=tail_manager)
+    merger = ResultMerger()
+    batch1_task_manager = Batch1TaskManager(
+        db,
+        CommandSplitter(),
+        pipeline,
+        merger,
+        temp_manager,
+        tail_manager=tail_manager,
+    )
+    await batch1_task_manager.initialize()
+
+    app.state.batch1_task_manager = batch1_task_manager
+    app.state.temp_file_manager = temp_manager
+    app.state.tail_context_manager = tail_manager
+
+    # 启动时扫描清理孤儿临时目录（保护非终态任务的分段目录）
+    try:
+        protected: set[str] = set()
+        for active_row in await db.get_active_tasks():
+            for seg_row in await db.get_segments_for_task(active_row["task_id"]):
+                protected.add(seg_row["segment_id"])
+        temp_manager.startup_cleanup(protected_segment_ids=protected)
+        tail_manager.cleanup_expired()
+    except Exception as cleanup_exc:
+        logger.warning("[Bootstrap] 启动临时目录扫描异常（不阻塞启动）: %s", cleanup_exc)
+
+    logger.info("[Bootstrap] 批次1分段执行引擎装配完成")
+
+
+# ==========================================
+# 全局 LLM 适配器
+# ==========================================
+async def setup_llm_client(app: FastAPI) -> None:
+    """挂载全局 LLM 适配器（密钥统一从 config_manager 收敛读取）。
+
+    安全门控：未启用开关或缺少密钥时 llm_client=None，云端功能整体禁用。
+    """
+    from utils.llm_adapter import DeepSeekClient
+
+    llm_client: Any = None
+    if is_cloud_enabled():
+        llm_client = DeepSeekClient(
+            api_key=config_manager.get_llm_api_key("deepseek"),
+            api_base=config_manager.get_llm_base(
+                "deepseek", default="https://api.deepseek.com/v1"
+            ),
+            model_name=config_manager.get_llm_model(
+                "deepseek", default="deepseek-r1"
+            ),
+        )
+        logger.info("[Bootstrap] 全局 LLM 适配器 (DeepSeek) 已开启挂载。")
+    else:
+        logger.info("[Bootstrap] 未启用云端开关或缺少凭据：云端功能禁用，走本地兜底。")
+
+    app.state.llm_client = llm_client
+    app.state.cloud_enabled = llm_client is not None
+
+
+# ==========================================
+# 反思系统 (Batch 4)
+# ==========================================
+async def setup_reflection(app: FastAPI) -> None:
+    """注入规则/技能提取器、优化应用器、卡片索引器与反思触发器。"""
+    from extractors.rule_extractor import RuleExtractor, SkillExtractor
+    from services.indexer import CardIndexer
+    from services.optimization_applier import OptimizationApplier
+    from services.project_manager import ProjectManager
+    from services.reflection_trigger import DataCollector, ReflectionTrigger
+
+    db: DatabaseManager = app.state.db
+    task_manager: TaskManager = app.state.task_manager
+
+    rule_extractor = RuleExtractor()
+    skill_extractor = SkillExtractor()
+    app.state.rule_extractor = rule_extractor
+    app.state.skill_extractor = skill_extractor
+
+    applier = OptimizationApplier(db)
+    await applier.initialize()
+    app.state.optimization_applier = applier
+
+    indexer = CardIndexer()
+    await indexer.initialize()
+    # 架构整改 1.1：ProjectManager 注入分支版本系统（开关关闭时自动回退旧逻辑）
+    from services.version_control import VersionControlService
+
+    version_control = VersionControlService(db)
+    pm = ProjectManager(db, version_control=version_control)
+    await pm.initialize()
+    app.state.version_control = version_control
+    app.state.project_manager = pm
+    app.state.indexer = indexer
+
+    collector = DataCollector(db, indexer, pm)
+    trigger = ReflectionTrigger(db, task_manager, collector)
+    await trigger.initialize()
+    app.state.reflection_trigger = trigger
+
+    # 【0-2 修复】将全局 LLM 客户端注入反思引擎，去除硬编码反思结论。
+    # 未启用云端开关时 llm_client 为 None，ReflectionEngine 自动降级，不影响既有链路。
+    try:
+        from services.reflection_engine import reflection_engine
+
+        reflection_engine.set_model_client(getattr(app.state, "llm_client", None))
+    except Exception as exc:
+        logger.warning("[Bootstrap] 注入反思引擎模型客户端失败，跳过: %s", exc)
+
+    logger.info("[Bootstrap] 反思系统装配完成")
+
+
+# ==========================================
+# 第十部分: 多智能体小说创作 自学习闭环
+# ==========================================
+async def setup_novel_multi_agent(app: FastAPI) -> None:
+    """装配多智能体小说创作总监督管、审计仓库、技能仓库与自学习闭环。
+
+    受 feature.novel_multi_agent_enable 总开关控制；
+    关闭时全部服务缺省 None，多智能体功能整体禁用、不影响其它模块。
+    """
+    from core.config_manager import config_manager
+
+    enable = config_manager.get_bool("feature.novel_multi_agent_enable", False)
+    if not enable:
+        logger.info("[Bootstrap] feature.novel_multi_agent_enable=false，跳过多智能体装配")
+        return
+
+    from models.novel_agent import NovelAgentSkill
+    from services.novel_agent_audit_store import NovelAgentAuditStore
+    from services.novel_agent_skill_store import NovelAgentSkillStore
+    from services.novel_agent_learning_loop import NovelAgentLearningLoop
+    from services.novel_supervisor import NovelSupervisor
+
+    db: DatabaseManager = app.state.db
+    task_manager: TaskManager = app.state.task_manager
+    indexer = app.state.indexer
+    applier = app.state.optimization_applier
+
+    # 1. 审计仓库
+    audit_store = NovelAgentAuditStore(db)
+    await audit_store.initialize()
+    app.state.novel_agent_audit_store = audit_store
+
+    # 2. 技能仓库
+    skill_store = NovelAgentSkillStore(db, indexer=indexer)
+    await skill_store.initialize()
+    app.state.novel_agent_skill_store = skill_store
+
+    # 3. 自学习闭环
+    learning_loop = NovelAgentLearningLoop(
+        db=db,
+        audit_store=audit_store,
+        skill_store=skill_store,
+        optimization_applier=applier,
+        task_manager=task_manager,
+        indexer=indexer,
+    )
+    app.state.novel_agent_learning_loop = learning_loop
+
+    # 4. 多智能体总监督管（注入批次1任务管理器与审计/技能仓库）
+    supervisor = NovelSupervisor(
+        indexer=indexer,
+        optimization_applier=applier,
+        dispatcher=app.state.model_dispatcher if hasattr(app.state, "model_dispatcher") else None,
+        divergent_engine=app.state.divergent_engine if hasattr(app.state, "divergent_engine") else None,
+    )
+    supervisor._batch1_task_manager = getattr(app.state, "batch1_task_manager", None)
+    supervisor._audit_store = audit_store
+    supervisor._skill_store = skill_store
+    app.state.novel_supervisor = supervisor
+
+    logger.info("[Bootstrap] 多智能体小说创作闭环装配完成")
+
+
+# ==========================================
+# 量化核心 (Batch 2) 与发散引擎
+# ==========================================
+async def setup_quantification(app: FastAPI) -> None:
+    """装配卡片注册表、量化器、模型调度器与发散引擎。"""
+    from services.quantifier import BookQuantifier
+    from services.card_registry import CardTypeRegistry
+    from strategies.extraction import DefaultStrategy
+    from services.dispatcher import ModelDispatcher
+    from services.divergent_engine import DivergentEngine
+
+    db: DatabaseManager = app.state.db
+    task_manager: TaskManager = app.state.task_manager
+    indexer = app.state.indexer
+    pm = app.state.project_manager
+
+    registry = CardTypeRegistry()
+    registry.register_default_types()
+    strategy = DefaultStrategy(registry=registry)
+    # P1-1.4：量化器复用批次1引擎的 TailContextManager（双模式落盘统一）
+    quantifier = BookQuantifier(
+        db, task_manager, indexer, registry, strategy,
+        tail_manager=getattr(app.state, "tail_context_manager", None),
+    )
+
+    # ── P0 修复：启动核心任务 Worker 消费量化/文档学习队列。 ──
+    # 原先只装配了 quantifier 却从未调用 task_manager.start_workers，
+    # 导致 submit_quantize_task 提交后任务永久停留在 PENDING，
+    # 且重复量化保护会让后续所有量化请求 409 死锁（系统功能瘫痪）。
+    # 文档学习任务（learn_document_*）与量化共用该 worker，因此使用
+    # 分派 handler 按 raw_command 前缀路由到对应引擎；
+    # learning_engine 在 setup_control_center 阶段装配，handler 内懒获取。
+    # 并发数 =1：重负载任务串行执行，与 library.max_concurrent_quantize
+    # 排队语义一致；start_workers 带 _is_running 防重入。
+    from models.task import BasePipelineTask
+    async def _task_dispatcher(task: BasePipelineTask) -> None:
+        if task.task_type == "learning":
+            engine = getattr(app.state, "learning_engine", None)
+            if engine is not None:
+                await engine.process_task(task)
+            else:
+                logger.warning("[Bootstrap] 学习任务被消费但 learning_engine 未装配，跳过: %s", task.task_id)
+            return
+        if task.task_type == "reflection":
+            trigger = getattr(app.state, "reflection_trigger", None)
+            if trigger is not None:
+                await trigger.process_task(task)
+            # 第十部分：多智能体自学习反思任务（novellearn_ 前缀，走同一低优先级队列）
+            if getattr(task, "task_id", "").startswith("novellearn_"):
+                loop = getattr(app.state, "novel_agent_learning_loop", None)
+                if loop is not None:
+                    try:
+                        await loop.process_reflection_task()
+                    except Exception as exc:
+                        logger.error("[Bootstrap] 多智能体反思学习执行失败: %s", exc)
+            return
+        if task.task_type == "generate_image":
+            # 补丁4：分镜生图任务（StoryboardService 懒装配）
+            svc = getattr(app.state, "storyboard_service", None)
+            if svc is None:
+                from services.storyboard import StoryboardService
+
+                svc = StoryboardService(
+                    app.state.project_manager,
+                    task_manager=task_manager,
+                )
+                app.state.storyboard_service = svc
+            payload = getattr(task, "payload", None) or {}
+            anchor_id = payload.get("anchor_id", "")
+            project_id = payload.get("project_id", "")
+            if anchor_id and project_id:
+                await svc.process_generate(project_id, anchor_id, task.raw_command)
+            else:
+                logger.warning("[Bootstrap] 生图任务缺少锚点上下文: %s", task.task_id)
+            return
+        if task.task_type == "deep_think":
+            # 批次7：创作长思考流水线（DeepThinkService 懒装配）
+            svc = getattr(app.state, "deep_think_service", None)
+            if svc is None:
+                from services.deep_think import DeepThinkService
+
+                svc = DeepThinkService(
+                    task_manager=task_manager,
+                    project_manager=pm,
+                    dispatcher=dispatcher,
+                )
+                app.state.deep_think_service = svc
+            try:
+                await svc.process_task(task)
+            except Exception as exc:
+                logger.error("[Bootstrap] 长思考流水线执行失败: %s", exc)
+            return
+        await quantifier.process_task(task)
+
+    # 原先只装配了 quantifier 却从未调用 task_manager.start_workers，这里补全
+    # 排队语义一致；start_workers 有 _is_running 防重入。
+    from core.agent_runtime_patch import apply_agent_runtime_patch
+    patched_dispatcher = apply_agent_runtime_patch(_task_dispatcher)
+    await task_manager.start_workers(patched_dispatcher, concurrency=1)
+    logger.info("[Bootstrap] 核心任务 Worker 已启动 (concurrency=1, 量化/文档学习分派)")
+
+    dispatcher = ModelDispatcher(task_manager, indexer, pm)
+    divergent_engine = DivergentEngine(dispatcher, indexer)
+
+    app.state.registry = registry
+    app.state.quantifier = quantifier
+    app.state.model_dispatcher = dispatcher
+    app.state.divergent_engine = divergent_engine
+
+    logger.info("[Bootstrap] 量化核心与发散引擎装配完成")
+
+
+# ==========================================
+# 总控中枢 (Batch 5)
+# ==========================================
+async def setup_control_center(app: FastAPI) -> None:
+    """装配状态管理器、文件守卫、优先队列、监控器与全局路由器。"""
+    from core.state_manager import StateManager
+    from guards.fs_guard import FileSystemGuard
+    from services.priority_queue import PriorityTaskQueue
+    from services.system_monitor import SystemMonitor
+    from services.global_router import GlobalRouter
+    from services.learning_engine import DocumentLearningEngine
+    from services.load_estimator import LoadEstimator
+
+    db: DatabaseManager = app.state.db
+    task_manager: TaskManager = app.state.task_manager
+    pm = app.state.project_manager
+    indexer = app.state.indexer
+    dispatcher = app.state.model_dispatcher
+    divergent_engine = app.state.divergent_engine
+    trigger = app.state.reflection_trigger
+    applier = app.state.optimization_applier
+    batch1_task_manager = app.state.batch1_task_manager
+
+    state_manager = StateManager()
+    app.state.state_manager = state_manager
+
+    fs_guard = FileSystemGuard()
+    app.state.fs_guard = fs_guard
+
+    priority_task_queue = PriorityTaskQueue()
+    app.state.priority_task_queue = priority_task_queue
+
+    system_monitor = SystemMonitor()
+    app.state.system_monitor = system_monitor
+
+    # 补丁E剩余业务：GC 后台任务管理器（空闲 VACUUM + 临时清理）
+    from core.gc_manager import GCTaskManager
+
+    gc_task_manager = GCTaskManager(
+        db=db,
+        system_monitor=system_monitor,
+        temp_manager=getattr(app.state, "temp_file_manager", None),
+        tail_manager=getattr(app.state, "tail_context_manager", None),
+        state_manager=state_manager,
+    )
+    app.state.gc_task_manager = gc_task_manager
+
+    learning_engine = DocumentLearningEngine(
+        db=db,
+        task_manager=task_manager,
+        project_manager=pm,
+        dispatcher=dispatcher,
+    )
+    app.state.learning_engine = learning_engine
+
+    load_estimator = LoadEstimator(indexer=indexer, project_manager=pm)
+    app.state.load_estimator = load_estimator
+
+    global_router = GlobalRouter(
+        task_queue=priority_task_queue,
+        system_monitor=system_monitor,
+        task_manager=task_manager,
+        reflection_trigger=trigger,
+        optimization_applier=applier,
+        model_dispatcher=dispatcher,
+        project_manager=pm,
+        batch1_task_manager=batch1_task_manager,
+        load_estimator=load_estimator,
+        divergent_engine=divergent_engine,
+        # 第十部分：多智能体小说创作总监督管（开关关闭时为 None）
+        novel_supervisor=getattr(app.state, "novel_supervisor", None),
+    )
+    # 第十部分：多智能体自学习闭环引用（创作完成后触发低优先级反思任务）
+    global_router._novel_learning_loop = getattr(
+        app.state, "novel_agent_learning_loop", None
+    )
+    app.state.global_router = global_router
+
+    logger.info("[Bootstrap] 总控中枢装配完成")
+
+
+# ==========================================
+# 后台协程托管
+# ==========================================
+async def _auto_reflection_worker(app: FastAPI) -> None:
+    """后台轮询守护进程：定时自动唤醒 ReflectionTrigger。"""
+    from services.reflection_trigger import ReflectionTrigger
+
+    trigger: ReflectionTrigger = app.state.reflection_trigger
+    while True:
+        try:
+            await asyncio.sleep(_AUTO_REFLECTION_INTERVAL)
+            logger.info("[AutoReflection] 触发系统自动反思巡检...")
+            await trigger.trigger(trigger_type="AUTO")
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.error("[AutoReflection] 自动巡检发生异常: %s", exc)
+
+
+async def _emotion_archive_worker(app: FastAPI) -> None:
+    """补丁G后台协程：周期性归档旧情感帧元数据（磁盘 JSON 保留为冷数据）。"""
+    while True:
+        try:
+            await asyncio.sleep(_EMOTION_ARCHIVE_INTERVAL)
+            db = getattr(app.state, "db", None)
+            if db is None:
+                continue
+            from services.emotion_engine.frame_manager import EmotionFrameManager
+
+            frame_manager = EmotionFrameManager(db)
+            await frame_manager.prune_old_frame_meta()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("[EmotionArchive] 帧归档巡检异常: %s", exc)
+
+
+async def _batch1_engine_worker(app: FastAPI) -> None:
+    """批次1分段执行引擎的后台消费者（空闲时 sleep 避免忙等）。
+
+    长任务流式输出：每个任务生命周期节点通过 WS manager 发布 task_progress 事件，
+    前端订阅任务频道即可实时接收状态与分段进度。
+    """
+    from api.websocket import manager as ws_manager
+
+    tm = app.state.batch1_task_manager
+    while True:
+        try:
+            task = await tm.process_next()
+            if task is None:
+                await asyncio.sleep(_IDLE_POLL_SECONDS)
+                continue
+
+            # 发布任务进度事件（仅当存在订阅者时才有网络开销）
+            try:
+                await ws_manager.publish_task_event(
+                    task.task_id,
+                    {
+                        "status": task.status.value if hasattr(task.status, "value") else str(task.status),
+                        "segments": [
+                            {
+                                "segment_id": s.segment_id,
+                                "status": s.status.value if hasattr(s.status, "value") else str(s.status),
+                                "sequence_order": s.sequence_order,
+                            }
+                            for s in task.segments
+                        ],
+                    },
+                )
+            except Exception as ws_exc:
+                logger.warning("[Batch1Worker] 发布任务进度失败: %s", ws_exc)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.error("[Batch1Worker] 分段引擎消费任务异常: %s", exc)
+            await asyncio.sleep(0.5)
+
+
+async def _queue_worker(app: FastAPI) -> None:
+    """后台轮询守护进程：消费 priority_task_queue 中的任务。"""
+    from services.priority_queue import PriorityTaskQueue
+
+    queue: PriorityTaskQueue = app.state.priority_task_queue
+    while True:
+        task_id = None
+        try:
+            task_id, coro = await queue.pop()
+            logger.info("[QueueWorker] 开始执行任务 %s", task_id)
+            await coro
+            logger.info("[QueueWorker] 任务 %s 执行完毕", task_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.exception("[QueueWorker] 处理任务 %s 时发生异常", task_id or "unknown")
+        finally:
+            if task_id is not None:
+                try:
+                    queue.task_done()
+                except Exception:
+                    logger.exception("[QueueWorker] task_done 失败: %s", task_id)
+
+
+async def _supervised_background_worker(
+    name: str, worker_factory: Any, restart_delay: float = 1.0
+) -> None:
+    """后台协程总入口隔离器：异常完整落日志，退出后自动重启。"""
+    while True:
+        try:
+            await worker_factory()
+            logger.error("[Bootstrap] 后台协程 %s 意外退出，将在 %.1fs 后重启", name, restart_delay)
+        except asyncio.CancelledError:
+            raise
+        except BaseException:
+            # BaseException 覆盖第三方后台代码误抛的非 Exception 异常；取消仍单独放行。
+            logger.exception("[Bootstrap] 后台协程 %s 崩溃，主事件循环保持运行", name)
+        await asyncio.sleep(restart_delay)
+
+
+def start_background_tasks(app: FastAPI) -> None:
+    """托管全部后台协程。
+
+    线程池评估结论：三个协程均为 asyncio 原生 I/O 密集（轮询、队列、DB 异步），
+    不涉及 CPU 阻塞调用，无需 to_thread 线程池隔离；保持事件循环内运行即可，
+    避免线程切换开销。CPU 密集型（大文档解析）已由批次1引擎独立消费。
+    P2-2.2：SystemMonitor 后台采样协程（临时目录全量遍历移出请求路径）。
+    """
+    app.state.bg_reflection_task = asyncio.create_task(
+        _supervised_background_worker("reflection", lambda: _auto_reflection_worker(app))
+    )
+    app.state.bg_queue_task = asyncio.create_task(
+        _supervised_background_worker("priority-queue", lambda: _queue_worker(app))
+    )
+    app.state.bg_batch1_task = asyncio.create_task(
+        _supervised_background_worker("batch1", lambda: _batch1_engine_worker(app))
+    )
+    app.state.bg_emotion_archive_task = asyncio.create_task(
+        _supervised_background_worker("emotion-archive", lambda: _emotion_archive_worker(app))
+    )
+    monitor = getattr(app.state, "system_monitor", None)
+    if monitor is not None:
+        try:
+            monitor.start_background_sampler()
+        except Exception as exc:
+            logger.warning("[Bootstrap] SystemMonitor 后台采样启动失败: %s", exc)
+    logger.info("[Bootstrap] 后台协程托管完毕 (reflection / queue / batch1 / emotion-archive / monitor)")
+
+
+async def stop_background_tasks(app: FastAPI) -> None:
+    """按依赖逆序停止后台任务并释放全部运行时资源。
+
+    关闭期间必须先取消 supervisor，再停止它所依赖的 worker；否则
+    supervisor 会把正常的取消误判成“意外退出”并重新创建 worker，导致
+    TestClient/uvicorn 重启时残留任务和数据库连接。
+    """
+    for name in (
+        "bg_reflection_task",
+        "bg_queue_task",
+        "bg_batch1_task",
+        "bg_emotion_archive_task",
+    ):
+        task = getattr(app.state, name, None)
+        if task is not None:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                pass
+
+    monitor = getattr(app.state, "system_monitor", None)
+    if monitor is not None:
+        try:
+            await monitor.stop_background_sampler()
+        except Exception:
+            pass
+
+    gc_manager = getattr(app.state, "gc_task_manager", None)
+    if gc_manager is not None:
+        try:
+            await gc_manager.shutdown()
+        except Exception:
+            pass
+
+    indexer = getattr(app.state, "indexer", None)
+    if indexer:
+        try:
+            await indexer.close()
+        except Exception:
+            pass
+
+    core_task_manager = getattr(app.state, "task_manager", None)
+    if core_task_manager is not None:
+        try:
+            await core_task_manager.stop_workers()
+        except Exception:
+            logger.warning("[Bootstrap] 核心任务 Worker 停止失败", exc_info=True)
+
+    # batch1 当前由 bg_batch1_task 消费，不拥有独立 worker；保留可选
+    # shutdown/close 钩子以兼容未来实现，避免生命周期依赖具体版本。
+    batch1_task_manager = getattr(app.state, "batch1_task_manager", None)
+    for method_name in ("shutdown", "close"):
+        method = getattr(batch1_task_manager, method_name, None)
+        if method is not None:
+            try:
+                result = method()
+                if asyncio.iscoroutine(result):
+                    await result
+            except Exception:
+                logger.warning("[Bootstrap] 批次1任务管理器 %s 失败", method_name, exc_info=True)
+            break
+
+    db = getattr(app.state, "db", None)
+    if db is not None:
+        try:
+            await db.close()
+        except Exception:
+            logger.warning("[Bootstrap] 数据库关闭失败", exc_info=True)
+
+    # 兜底关闭仍保留：其它服务可能直接持有默认池连接。
+    from core.db_pool import db_pool
+    await db_pool.close_all()
+
+    logger.info("[Bootstrap] 全局资源释放完毕，安全退出。")
+
+
+# ==========================================
+# 生命周期组装
+# ==========================================
+async def initialize_app(app: FastAPI) -> None:
+    """按序执行全部装配阶段（任一阶段失败即中断启动，fail fast）。"""
+    logger.info("====== 正在启动 No.0 AI V4.0 系统 ======")
+    await setup_base(app)
+    await setup_batch1_engine(app)
+    await setup_llm_client(app)
+    await setup_reflection(app)
+    await setup_quantification(app)
+    # 第十部分: 多智能体小说创作自学习闭环（依赖 indexer/applier/dispatcher，置于量化之后）
+    await setup_novel_multi_agent(app)
+    await setup_control_center(app)
+    # 架构整改 1.3：硬编码 Prompt 启动自检（仅告警，不阻塞启动）
+    try:
+        from core.prompt_audit import run_prompt_audit
+
+        run_prompt_audit()
+    except Exception as audit_exc:
+        logger.warning("[Bootstrap] Prompt 自检执行异常（不阻塞启动）: %s", audit_exc)
+    # 批次7：启动生成系统架构镜像（blueprint：architecture_map/api_spec/ui_flow）
+    try:
+        if config_manager.get_bool("feature.deep_thinking_enable", False):
+            from core.blueprint import blueprint_generator
+
+            blueprint_generator.generate_all(app)
+    except Exception as blueprint_exc:
+        logger.warning("[Bootstrap] 架构镜像生成异常（不阻塞启动）: %s", blueprint_exc)
+    # 启动回收发散引擎等孤儿临时目录（只建不清理场景的兜底，按 mtime TTL 淘汰）
+    try:
+        from core.temp_manager import temp_manager as scoped_temp_manager
+
+        cleaned = scoped_temp_manager.cleanup_orphans(function_type="divergence")
+        if cleaned:
+            logger.info("[Bootstrap] 启动回收发散引擎孤儿临时目录 %d 个", cleaned)
+    except Exception as cleanup_exc:
+        logger.warning("[Bootstrap] 发散引擎临时目录清理异常（不阻塞启动）: %s", cleanup_exc)
+    start_background_tasks(app)
+    logger.info("系统初始化完成，全部路由与底座处于 Standby 状态。")
+
+
+async def shutdown_app(app: FastAPI) -> None:
+    logger.info("====== 正在关闭 No.0 AI V4.0 系统 ======")
+    await stop_background_tasks(app)
+
+
+def create_lifespan() -> Any:
+    """构造 FastAPI lifespan 上下文管理器。"""
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        await initialize_app(app)
+        try:
+            yield
+        finally:
+            await shutdown_app(app)
+
+    return lifespan

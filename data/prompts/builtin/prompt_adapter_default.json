@@ -1,0 +1,17 @@
+{
+  "template_id": "prompt_adapter_default",
+  "name": "Experience Lock - Default",
+  "category": "reflection",
+  "version": "1.0.0",
+  "template_text": "系统经验规则：\n{{ experience_rules }}\n\n任务内容：\n{{ original_task }}\n\n请以严格的 JSON 格式回复，并且在 JSON 顶层必须包含 'rule_checklist' 键来检查你是否遵守了上述规则。",
+  "variables": [
+    "experience_rules",
+    "original_task"
+  ],
+  "tags": [
+    "reflection",
+    "batch4",
+    "default"
+  ],
+  "is_builtin": true
+}

@@ -1,0 +1,16 @@
+{
+  "template_id": "expert_combat",
+  "name": "Combat Expert Prompt",
+  "category": "extraction",
+  "version": "1.0.0",
+  "template_text": "【战力评估师】\n你的唯一任务是分析文中的战斗场面、双方实力对比、招式使用以及胜负关系。\n如果没有发生任何战斗，请在 JSON 的 final_data 中返回空字典 {}\n输出示例：\n{\"final_data\": {\"参与者\": [\"王腾\", \"叶凡\"], \"胜负关系\": \"王腾胜出\", \"招式使用\": {\"王腾\": \"天帝碎灭斩\"}}}\n\n原文：\n{{ content }}",
+  "variables": [
+    "content"
+  ],
+  "tags": [
+    "extraction",
+    "batch2",
+    "combat"
+  ],
+  "is_builtin": true
+}

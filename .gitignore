@@ -1,0 +1,30 @@
+# 虚拟环境
+.venv/
+.uv/
+
+# Python缓存
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 测试缓存
+.pytest_cache/
+
+# 数据库、临时文件
+*.db
+*.db-journal
+*.tmp
+temp*/
+*.log
+
+# 构建输出
+build/
+dist/
+
+# 本地配置、环境变量
+.env
+*.env
+
+# 工具本地目录
+.workbuddy/

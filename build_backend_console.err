@@ -1,0 +1,11 @@
+所在位置 C:\Users\11482\Documents\aiilie\build_backend.ps1:23 字符: 18
++     Write-Output "[build] 鉂?EXE 鏈敓鎴愶紝鏋勫缓澶辫触銆?
++                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+字符串缺少终止符: "。
+所在位置 C:\Users\11482\Documents\aiilie\build_backend.ps1:22 字符: 8
++ } else {
++        ~
+语句块或类型定义中缺少右“}”。
+    + CategoryInfo          : ParserError: (:) [], ParentContainsErrorRecordException
+    + FullyQualifiedErrorId : TerminatorExpectedAtEndOfString
+ 

@@ -1,0 +1,15 @@
+{
+  "template_id": "divergent_think",
+  "name": "Divergent Think Prompt",
+  "category": "creation",
+  "version": "1.0.0",
+  "template_text": "你是一个拥有顶级逻辑思维的网文审核主编。\n【作者指令/问题】{{ cmd_text }}\n请不要代写小说正文。你需要发散思考：\n1. 作者的这个诉求在逻辑上是否有漏洞？\n2. 当前设定如果继续走下去，剧情张力和战力会不会崩塌？\n3. 总结出一个通用的『发散思维经验』，提炼成以后写作时可以参考的指导原则。\n",
+  "variables": [
+    "cmd_text"
+  ],
+  "tags": [
+    "divergent",
+    "think_mode"
+  ],
+  "is_builtin": true
+}

@@ -1,0 +1,154 @@
+# API 路由增强与意图识别
+enable_raw_keyword_intent: true
+
+# ── 安全配置（安全加固新增） ──
+security:
+  # 生产环境建议开启：开启后所有 /api/v1 接口强制要求 Bearer/API Token
+  require_auth: false
+  # 令牌签名密钥：请通过环境变量 AIILIE_SECURITY_AUTH_SECRET 覆盖，勿明文提交
+  auth_secret: ""
+
+# ── 请求限流（Token Bucket，桌面单用户场景，防异常轮询风暴） ──
+rate_limiter:
+  # 每秒补充令牌数
+  rate: 50
+  # 桶容量（允许的瞬时突发请求数）
+  capacity: 100
+
+library:
+  max_concurrent_quantize: 2
+  # 上传文件大小上限（MB）
+  upload_max_mb: 20
+
+# ── 项目与文档（功能补全新增） ──
+project:
+  # 文档版本历史最大保留版本数
+  max_doc_versions: 20
+
+# ── 批次1 分段执行引擎（P0/P1/P2 修复新增配置） ──
+task:
+  # P0-1: 分段结果写入 SQLite 的字节阈值（默认 10KB）
+  # 超过阈值时 result_content 置空，只持久化 output_path 磁盘路径
+  max_db_payload_bytes: 10240
+  # P0-1: 兼容回退开关，开启后大结果也允许写入数据库（旧逻辑）
+  allow_large_payload_in_db: false
+  # P1-4: 尾巴 JSON 体积阈值（默认 64KB），超过则落盘双模式
+  tail_memory_threshold_bytes: 65536
+  # P1-4: 尾巴磁盘卸载开关，关闭后全部尾巴驻留内存（旧逻辑）
+  enable_tail_disk_offload: true
+  # P1-4: 落盘尾巴 TTL（秒），过期后可被启动清理回收
+  tail_ttl_seconds: 86400
+  # P2-6: 临时目录磁盘配额（GB），超限触发 LRU 淘汰
+  temp_max_size_gb: 2
+  # P2-6: 启动时扫描清理孤儿临时目录
+  cleanup_orphan_on_start: true
+  # P0-3: 长任务判定字数阈值（与 CommandSplitter 对齐）
+  long_command_min_chars: 2000
+  # 专项4修复：全局硬超时（秒）
+  # max_queue_seconds: 任务在队列中等待的最长时间，超过则强制 FAILED(timeout)
+  max_queue_seconds: 3600
+  # max_run_seconds: 任务执行（含分段）的最长时间，超过则强制 FAILED(timeout)
+  max_run_seconds: 1800
+
+# ── 批次5 全局路由器（P0-3 集成修复新增配置） ──
+global_router:
+  # 长任务（创作/量化/深度思考）是否走批次1分段执行引擎
+  # 关闭后切回旧闭包队列逻辑，用于回退调试
+  use_batch1_engine: true
+
+# ── 结果合并器（P0-2 流式合并新增配置） ──
+result_merger:
+  # merge_and_load 兼容模式的内存加载阈值（默认 1MB）
+  # 超过阈值只返回文件路径，不返回内存字符串
+  memory_load_threshold_bytes: 1048576
+
+# ── 指令负载预估器（B1-09 新增配置） ──
+load_estimator:
+  # 总开关：关闭后整套负载预估失效，全部任务回退原始 auto 逻辑（补丁前行为）
+  enable: true
+  # 指令字符 ≤ 该值视为 SHORT（短指令），超过视为 LONG（长指令）
+  command_short_threshold: 1200
+  # 关联卡片数 ≥ 该值视为 EXTERNAL_HIGH（外部资源高负载）
+  external_high_card_threshold: 8
+
+# 创作闭环后置自动反思采样
+auto_reflection_after_creation:
+  enable: true
+  probability: 0.2
+  min_token_threshold: 500
+
+llm:
+  enable_context_truncate: true
+  resource_sense:
+    enable: true
+    memory_threshold_pct: 85
+reflection:
+  schedule_cron: "0 2 * * *"
+
+feature:
+  # ── 第十部分：多智能体小说创作 总开关（总控）──
+  # 关闭后多智能体自学习全部停止，多Agent功能不受影响（回退原创作链路）
+  novel_multi_agent_enable: false
+  emotion_quantify_enable: true
+  # 架构整改 1.1：分支版本系统总开关。
+  # true  → 文档版本/平行宇宙剧情全部走补丁3 Branch/DocumentVersion 分支体系；
+  # false → 完全回退旧简易版本历史（ProjectManager 兼容层），默认关闭保证向后兼容。
+  branch_version_enable: false
+  # ── 业务补丁 1-4 独立开关（第五部分） ──
+  # 补丁1：非线性叙事时间轴系统
+  timeline_enable: true
+  # 补丁2：沉浸式角色语调 TTS 与校对系统
+  tts_enable: true
+  # 补丁4：场景可视化分镜生成系统
+  storyboard_enable: true
+  # 批次7：深度思考与元认知扩展系统
+  deep_thinking_enable: true
+
+emotion_engine:
+  max_sensitive_rewrite_round: 2
+  chaotic_threshold: 7
+  max_task_timeout_sec: 120
+  max_task_total_token: 8192
+  recent_frame_keep_count: 3
+
+# ── 补丁1：时间轴系统配置 ──
+timeline:
+  # 单项目时间线轨道数上限
+  max_tracks: 6
+  # 单时间线事件数上限
+  max_events_per_timeline: 200
+
+# ── 补丁2：TTS 配置 ──
+tts:
+  # 引擎：vits_local（本地离线，Windows SAPI 兜底）/ azure / elevenlabs
+  engine: vits_local
+  # Azure 语音服务（引擎=azure 时需要）
+  azure_key: ""
+  azure_region: ""
+  # ElevenLabs（引擎=elevenlabs 时需要）
+  elevenlabs_api_key: ""
+  # 音频缓存目录 TTL（秒）
+  cache_ttl_seconds: 86400
+
+# ── 批次7：深度思考配置 ──
+deep_thinking:
+  # 行为日志单文件轮转上限（字节）
+  behavior_log_max_bytes: 524288
+  # 行为日志保留文件数
+  behavior_log_backup_count: 3
+  # 检查点保留数
+  checkpoint_keep_count: 10
+
+# ── 第十部分：多智能体小说创作 自学习闭环配置 ──
+novel_agent:
+  # 子开关：关闭后整套自学习停止（反思提取/技能沉淀/优胜劣汰），多Agent照常运行
+  enable_self_reflect_learn: false
+  # 最小样本数：达到该数量才允许生成规则/技能，避免小样本误判
+  min_sample_count: 5
+  # 置信度阈值：低于该值的规则进入补丁B人工审核队列
+  confidence_threshold: 0.75
+  # 效果评估降权阈值：effect_score 低于该值自动归档（只降权不删除）
+  archive_effect_threshold: 0.25
+
+paths:
+  emotion_frames_dir: "./data/emotion_frames"

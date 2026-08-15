@@ -1,0 +1,14 @@
+{
+  "template_id": "book_extract_worldview",
+  "name": "Extract",
+  "category": "extraction",
+  "version": "1.0",
+  "inherit_template_id": null,
+  "model_variant": null,
+  "template_text": "Welcome to {{ book_text }}, style: {{ style_tags }}",
+  "variables": [],
+  "tags": [],
+  "is_builtin": false,
+  "create_time": "2026-08-12T13:11:36.318144",
+  "update_time": "2026-08-12T13:11:36.318144"
+}

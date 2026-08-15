@@ -1,0 +1,85 @@
+[project]
+name = "novel-ai-engine"
+version = "4.0.0"
+description = "No.0 AI V4.0 智能小说创作系统 - 底层分段命令执行引擎"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "pydantic>=2.9.0",
+    "aiosqlite>=0.20.0",
+    "nuitka>=4.1.3",
+    "requests>=2.34.2",
+    "pyyaml>=6.0.3",
+    "httpx>=0.27.0",
+    "psutil>=5.9.0",
+    "jinja2>=3.1.0",
+    "pyinstaller>=6.22.0",
+    "pywebview>=6.2.1",
+    "croniter>=2.0.0",
+    "dirtyjson>=1.0.8",
+    "python-multipart>=0.0.20",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+# 专项5修复：全局测试超时保护 (60s) ，超时即失败并输出失败详情
+# 防止测试挂起无限阻塞 CI/回归流程
+timeout = 60
+# 超时按用例计时，不占用套件级总时长
+timeout_method = "thread"
+# 超时失败时保留完整 traceback
+# (timeout 插件默认即输出失败详情，无需额外配置)
+
+# —— mypy严格模式（质量优化新增） ——
+# 全局 strict=true; 存量模块在迁移期内豁免未标注检查，
+# 随批次逐步关闭豁免直至全量严格。
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unreachable = true
+no_implicit_optional = true
+
+[[tool.mypy.overrides]]
+module = [
+    "main",
+    "api.*",
+    "services.*",
+    "models.*",
+    "extractors.*",
+    "guards.*",
+    "strategies.*",
+    "utils.*",
+    "core.database",
+    "core.bootstrap",
+    "core.db_pool",
+    "core.task_manager",
+    "core.state_manager",
+    "core.path_resolver",
+    "core.logger",
+    "core.logging_config",
+    "core.cache_adapter",
+    "core.plugin_manager",
+    "core.temp_manager",
+]
+disallow_untyped_defs = false
+check_untyped_defs = false
+ignore_missing_imports = true
+
+[tool.pyinstaller]
+# PyInstaller打包入口
+# pyinstaller --onefile --add-data "resources;resources" main.py
+entry_point = "main.py"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-timeout>=2.3.1",
+    "pytest-xdist>=3.8.0",
+    "httpx>=0.27.0",
+    "mypy>=1.10.0",
+]

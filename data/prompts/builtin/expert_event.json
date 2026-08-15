@@ -1,0 +1,16 @@
+{
+  "template_id": "expert_event",
+  "name": "Event Expert Prompt",
+  "category": "extraction",
+  "version": "1.0.0",
+  "template_text": "【事件简报专员】\n你的唯一任务是用上帝视角，以不超过50个字的短陈述，一句话总结本段落发生的核心事件（粗颗粒度大纲）。\n忽略战斗招式细节或长篇大论的设定描述，只保留主线。\n输出示例：\n{\"final_data\": {\"简报\": \"王腾在灵台山施展绝招重创叶凡，姬紫月在旁悲伤旁观。\"}}\n\n原文：\n{{ content }}",
+  "variables": [
+    "content"
+  ],
+  "tags": [
+    "extraction",
+    "batch2",
+    "event"
+  ],
+  "is_builtin": true
+}
