@@ -188,6 +188,19 @@ class ReflectionTrigger:
             "[Reflection] 会话 %s 挖掘完成：候选规则 %d 条、候选技能 %d 项",
             session_id, len(rules), len(skills),
         )
+        # P4(浅知识入池):量化技能候选 → 行为插件candidate池
+        # (注册表内强制CANDIDATE,经治理门方可运行;失败不阻断)
+        if skills:
+            try:
+                from services.behavior_plugins import register_skill_candidates
+
+                candidates = register_skill_candidates(list(skills))
+                if candidates:
+                    logger.info(
+                        "[Reflection] %d 项量化技能已入行为插件candidate池", len(candidates)
+                    )
+            except Exception as exc:
+                logger.warning("[Reflection] 技能候选入池失败(不阻断): %s", exc)
         if self.optimization_applier is not None and (rules or skills):
             try:
                 await self.optimization_applier.apply_discoveries(rules, skills)

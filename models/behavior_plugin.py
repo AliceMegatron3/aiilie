@@ -112,6 +112,10 @@ class BehaviorPluginSpec(BaseModel):
     name: str
     description: str = ""
     prompt_template_id: str
+    prompt_override: str | None = Field(
+        default=None,
+        description="直接可用的打磨prompt(含{content}占位)——量化技能候选/治理晋升件的执行载体",
+    )
     trigger: PluginTrigger = Field(default_factory=PluginTrigger)
     acceptance: PluginAcceptance = Field(default_factory=PluginAcceptance)
     status: PluginStatus = PluginStatus.CANDIDATE

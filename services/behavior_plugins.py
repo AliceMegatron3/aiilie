@@ -240,8 +240,51 @@ def load_registry_overrides(registry: BehaviorPluginRegistry, path=None) -> None
         logger.warning("[BehaviorPlugins] 治理覆盖恢复失败: %s", exc)
 
 
+# ── P4:浅知识入池(量化技能→候选插件,永不直接上岗) ────────────
+
+def register_skill_candidates(skills: list, registry: BehaviorPluginRegistry | None = None) -> list[BehaviorPluginSpec]:
+    """UniversalSkill(TEMPLATE/STYLE/PATTERN) → 行为插件 candidate 池。
+
+    浅知识上升通道(讨论定稿):量化产物 source=QUANTIFIED,
+    注册表强制 CANDIDATE;经治理门(candidate→gray→active,
+    P2 API 三道门校验)方可进入运行时。prompt_override 携带
+    技能正文作为灰度验证时的执行载体。
+    """
+    reg = registry or behavior_plugin_registry
+    registered: list[BehaviorPluginSpec] = []
+    for skill in skills or []:
+        try:
+            name = str(getattr(skill, "name", "") or "").strip()
+            content = getattr(skill, "content", None) or {}
+            body = str(content.get("prompt") or content.get("template") or "") if isinstance(content, dict) else str(content)
+            if not name or not body or "{content}" not in body:
+                # 技能正文无 {content} 占位则包一层通用编辑指令
+                body = (
+                    "请依据以下手法要点打磨文稿,直接输出完整正文,不要输出解释或JSON。\n"
+                    f"手法要点:{body[:800]}\n\n文稿:\n{{content}}"
+                )
+            spec = BehaviorPluginSpec(
+                plugin_id=f"skill_{str(getattr(skill, 'skill_id', ''))[:12]}",
+                name=f"[量化候选] {name[:40]}",
+                description=f"来源:书库量化技能({getattr(skill, 'type', 'TEMPLATE')})",
+                prompt_template_id="behavior_editor_style",  # 兜底模板
+                prompt_override=body,
+                source=PluginSource.QUANTIFIED,  # 注册表内强制 CANDIDATE
+                run_order=200,
+            )
+            registered.append(reg.register(spec))
+        except Exception as exc:
+            logger.warning("[BehaviorPlugins] 技能候选注册失败(跳过): %s", exc)
+    return registered
+
+
 def _render_pass_prompt(spec: BehaviorPluginSpec, draft: str) -> str:
-    """渲染打磨 prompt:模板→内置人设兜底。"""
+    """渲染打磨 prompt:prompt_override(技能候选载体)→模板→内置人设兜底。"""
+    if spec.prompt_override:
+        try:
+            return spec.prompt_override.format(content=draft)
+        except Exception as exc:
+            logger.warning("[BehaviorPlugins] prompt_override 渲染异常,回退模板: %s", exc)
     try:
         from services.prompt_template_manager import prompt_manager
 
