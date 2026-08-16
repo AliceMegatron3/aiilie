@@ -150,6 +150,78 @@ export interface APIResponse<T> {
 
 export const api = {
   // ==========================================
+  // 叙事结构层(卷/章/拍/伏笔/弧线偏差报告)
+  // ==========================================
+  narrative: {
+    /** 列出卷 */
+    listVolumes: (project_id: string) => apiClient.get(`/narrative/projects/${project_id}/volumes`),
+    /** 保存卷(创建或更新) */
+    saveVolume: (volume: JsonObject) => apiClient.post('/narrative/volumes', volume),
+    /** 自由文本→拍/预算/伏笔建议(预览,不落库) */
+    parseOutline: (text: string) => apiClient.post('/narrative/chapters/parse', { text }),
+    /** 保存章纲要 */
+    saveChapter: (chapter: JsonObject) => apiClient.post('/narrative/chapters', chapter),
+    /** 确认拍纲(beats进入生成约束) */
+    confirmBeats: (chapter_id: string) => apiClient.post(`/narrative/chapters/${chapter_id}/confirm-beats`),
+    /** 列出章(可按 volume_id 过滤) */
+    listChapters: (project_id: string, volume_id?: string) =>
+      apiClient.get(`/narrative/projects/${project_id}/chapters`, { params: volume_id ? { volume_id } : {} }),
+    /** 登记章级实绩并即时对账 */
+    recordActuals: (chapter_id: string, actuals: JsonObject) =>
+      apiClient.post(`/narrative/chapters/${chapter_id}/actuals`, { actuals }),
+    /** 录入/更新伏笔 */
+    upsertThread: (thread: JsonObject) => apiClient.post('/narrative/threads', thread),
+    /** 伏笔推进/回收 */
+    threadAction: (thread_id: string, action: string, chapter_number: number = 0) =>
+      apiClient.post(`/narrative/threads/${thread_id}/actions`, { action, chapter_number }),
+    /** 未回收伏笔巡检(超期硬约束) */
+    auditThreads: (project_id: string, current_chapter: number) =>
+      apiClient.get(`/narrative/projects/${project_id}/threads/audit`, { params: { current_chapter } }),
+  },
+
+  // ==========================================
+  // 世界观锁定场(史实基线·must集·偏离登记)
+  // ==========================================
+  lockfield: {
+    /** 获取项目锁定场配置 */
+    get: (project_id: string) => apiClient.get(`/lockfield/projects/${project_id}`),
+    /** 保存锁定场配置(无则创建) */
+    save: (project_id: string, config: JsonObject) => apiClient.post(`/lockfield/projects/${project_id}`, config),
+    /** 物化 must 集(带缓存·前缀缓存稳定度指纹) */
+    mustSet: (project_id: string, force_rebuild: boolean = false) =>
+      apiClient.get(`/lockfield/projects/${project_id}/must-set`, { params: { force_rebuild } }),
+    /** 版本历史(编年史) */
+    versions: (project_id: string) => apiClient.get(`/lockfield/projects/${project_id}/versions`),
+    /** 回滚到指定版本 */
+    rollback: (project_id: string, target_version: number) =>
+      apiClient.post(`/lockfield/projects/${project_id}/rollback`, null, { params: { target_version } }),
+    /** 登记偏离建议(PENDING,待作者确认) */
+    proposeDivergence: (record: JsonObject) => apiClient.post('/lockfield/divergences', record),
+    /** 偏离确认/驳回 */
+    divergenceAction: (divergence_id: string, action: string) =>
+      apiClient.post(`/lockfield/divergences/${divergence_id}/actions`, { action }),
+    /** 列出偏离(可按状态过滤) */
+    listDivergences: (project_id: string, status?: string) =>
+      apiClient.get(`/lockfield/projects/${project_id}/divergences`, { params: status ? { status } : {} }),
+  },
+
+  // ==========================================
+  // 知识缺口与补全(LLM降级,draft待审)
+  // ==========================================
+  knowledge: {
+    /** 缺口聚账报告(检索未命中聚合) */
+    gaps: (project_id?: string) => apiClient.get('/knowledge/gaps', { params: project_id ? { project_id } : {} }),
+    /** 补全建议清单 */
+    proposals: (project_id?: string) => apiClient.get('/knowledge/proposals', { params: project_id ? { project_id } : {} }),
+    /** 登记补全建议(PENDING) */
+    propose: (project_id: string, topic: string, description: string = '', source: string = 'manual') =>
+      apiClient.post('/knowledge/propose', { project_id, topic, description, source }),
+    /** 作者确认执行补全→LLM→draft卡 */
+    complete: (project_id: string, topic: string, description: string = '') =>
+      apiClient.post('/knowledge/complete', { project_id, topic, description }),
+  },
+
+  // ==========================================
   // 工作区(批次3:只读浏览,写权限限工作区内)
   // ==========================================
   workspace: {
@@ -191,6 +263,12 @@ export const api = {
     /** 群像生活轨道清单 */
     ensembleTracks: (project_id: string) =>
       apiClient.get(`/ensemble/projects/${project_id}/tracks`),
+    /** 单角色全历史快照(按章号升序,角色时间线) */
+    trackHistoryByChar: (project_id: string, character_id: string) =>
+      apiClient.get(`/ensemble/projects/${project_id}/tracks/${character_id}/history`),
+    /** 角色在指定章号的状态快照(≤chapter最近,未来兜底最新) */
+    trackAtChapter: (project_id: string, character_id: string, chapter: number) =>
+      apiClient.get(`/ensemble/projects/${project_id}/tracks/${character_id}/at-chapter`, { params: { chapter } }),
     /** 录入/更新角色生活轨道(含别名,供在场识别) */
     upsertTrack: (project_id: string, payload: JsonObject) =>
       apiClient.post(`/ensemble/projects/${project_id}/tracks`, payload),
@@ -324,6 +402,11 @@ export const api = {
     toggleRule: (rule_id: string, is_active: boolean) => apiClient.put(`/reflection/rule/${rule_id}/toggle`, { is_active }),
     /** 查看通用技能资产 */
     listSkills: () => apiClient.get('/reflection/skill/list'),
+    /** 技能候选缓冲池(P2治理) */
+    skillCandidates: () => apiClient.get('/reflection/skills/candidates'),
+    /** 候选晋升(版本化) */
+    promoteSkillCandidate: (candidate_id: string) =>
+      apiClient.post(`/reflection/skills/candidates/${candidate_id}/promote`),
     /** 获取待审核规则（补丁B） */
     pendingRules: () => apiClient.get('/reflection/pending-rules'),
     /** 批准规则上线（补丁B） */

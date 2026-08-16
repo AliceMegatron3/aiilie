@@ -49,6 +49,30 @@ const routes = [
   {
     path: '/settings',
     component: () => import('../components/views/SettingsView.vue')
+  },
+  {
+    path: '/narrative',
+    component: () => import('../components/views/NarrativeView.vue')
+  },
+  {
+    path: '/lockfield',
+    component: () => import('../components/views/LockfieldView.vue')
+  },
+  {
+    path: '/knowledge-gaps',
+    component: () => import('../components/views/KnowledgeGapsView.vue')
+  },
+  {
+    path: '/ensemble-history',
+    component: () => import('../components/views/EnsembleHistoryView.vue')
+  },
+  {
+    path: '/plugins',
+    component: () => import('../components/views/PluginsView.vue')
+  },
+  {
+    path: '/workspace',
+    component: () => import('../components/views/WorkspaceView.vue')
   }
 ]
 

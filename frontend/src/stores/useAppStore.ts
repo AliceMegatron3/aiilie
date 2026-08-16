@@ -1,7 +1,37 @@
 import { defineStore } from 'pinia'
 import router from '../router'
 
-type AppModule = 'projects' | 'library' | 'templates' | 'sessions' | 'reflections' | 'settings'
+// 全部前端功能域，与后端 api domain、router 路径一一对应
+type AppModule =
+  // 创作
+  | 'projects' | 'narrative' | 'lockfield' | 'ensemble-history'
+  // 知识
+  | 'library' | 'knowledge-gaps' | 'emotion' | 'timeline'
+  // 智能
+  | 'agents' | 'deep-think' | 'sessions' | 'reflections'
+  // 系统
+  | 'plugins' | 'workspace' | 'settings' | 'templates'
+
+// 功能域 → 对应后端 api domain(文档用途,便于导航与接线核对)
+export const MODULE_TO_API_DOMAIN: Record<string, string> = {
+  projects: 'projects / docs',
+  narrative: 'narrative',
+  lockfield: 'lockfield',
+  'ensemble-history': 'ensemble',
+  library: 'library',
+  'knowledge-gaps': 'knowledge',
+  emotion: 'emotion',
+  timeline: 'timeline',
+  agents: 'novel-agent',
+  'deep-think': 'deepThink',
+  sessions: 'sessions',
+  reflections: 'reflection',
+  plugins: 'plugins / reflection-governance',
+  workspace: 'workspace',
+  settings: 'settings / models',
+  templates: 'prompts',
+}
+
 interface AppState {
   activeModule: AppModule
   selectedTemplateId: string | null
