@@ -28,6 +28,10 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _gen_id(prefix: str) -> str:
+    return f"{prefix}_{uuid.uuid4().hex[:12]}"
+
+
 class PluginStatus(str, Enum):
     CANDIDATE = "CANDIDATE"  # 候选(浅知识默认态,不参与运行)
     GRAY = "GRAY"            # 灰度(按比例采样生效)
@@ -135,13 +139,20 @@ class BehaviorPluginSpec(BaseModel):
 
 
 class BehaviorPluginRunRecord(BaseModel):
-    """一次打磨通行的落账(P2统计的原料)。"""
+    """一次打磨通行的落账(P2统计的原料)。
+
+    批次C:新增 run_id 与前后文本指纹(仅哈希不存全文),使
+    "作者最终改动更接近哪一趟通行的产物"可被追溯——插件级归因。
+    """
     plugin_id: str
     task_id: str = ""
+    run_id: str = Field(default_factory=lambda: _gen_id("run"))
     triggered: bool = False
     accepted: bool = False
     reason: str = ""
     duration_ms: int = 0
     input_chars: int = 0
     output_chars: int = 0
+    input_digest: str = Field(default="", description="通行前文本指纹(sha1前16位)")
+    output_digest: str = Field(default="", description="通行后文本指纹;未采纳则为空")
     ts: str = Field(default_factory=_now)

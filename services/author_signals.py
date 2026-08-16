@@ -41,40 +41,82 @@ def compute_retention(generated_text: str, final_text: str) -> float:
 def record_author_signal(
     task_id: str, generated_text: str, final_text: str, path=None
 ) -> dict:
-    """登记一条作者信号(编辑器/回流确认时调用;失败不阻断)。"""
+    """登记一条作者信号(仅作者明确确认时调用;失败不阻断)。
+
+    批次C:附带生成稿与定稿指纹,便于与打磨通行的 output_digest 比对,
+    判断"作者最终保留的是哪一趟通行的产物"(插件级归因)。
+    """
+    from services.telemetry_store import append_record, resolve_path, text_digest
+
     record = {
         "ts": _now(),
         "task_id": task_id,
         "generated_chars": len((generated_text or "").strip()),
         "final_chars": len((final_text or "").strip()),
         "retention": compute_retention(generated_text, final_text),
+        "generated_digest": text_digest(generated_text),
+        "final_digest": text_digest(final_text),
     }
-    target = Path(path or _default_path())
-    try:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        with target.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
-    except Exception as exc:
-        logger.warning("[AuthorSignals] 落账失败(不阻断): %s", exc)
+    append_record(resolve_path("author_signals.jsonl", path), record)
     return record
 
 
 def load_author_signals(path=None) -> dict[str, float]:
     """task_id → 最新保留率(后写覆盖)。"""
-    source = Path(path or _default_path())
-    if not source.exists():
-        return {}
+    from services.telemetry_store import read_records, resolve_path
+
     out: dict[str, float] = {}
-    for line in source.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line:
+    for rec in read_records(resolve_path("author_signals.jsonl", path)):
+        task_id = str(rec.get("task_id") or "")
+        if not task_id:
             continue
         try:
-            rec = json.loads(line)
-            out[str(rec.get("task_id"))] = float(rec.get("retention", 0) or 0)
-        except Exception:
+            out[task_id] = float(rec.get("retention", 0) or 0)
+        except (TypeError, ValueError):
             continue
     return out
+
+
+def load_author_signal_records(path=None) -> list[dict]:
+    """完整作者信号记录(含指纹),供插件级归因使用。"""
+    from services.telemetry_store import read_records, resolve_path
+
+    return read_records(resolve_path("author_signals.jsonl", path))
+
+
+def attribute_plugin_outcomes(run_records, signal_records: list[dict]) -> dict[str, dict]:
+    """插件级归因:作者定稿指纹是否等于某趟通行的产物指纹。
+
+    kept_final = 该趟通行的产物正是作者定稿(未再改动);
+    superseded = 该趟被采纳但作者定稿指纹不同(后续通行或作者改写)。
+    仅用指纹比对,不保存正文。
+    """
+    finals: dict[str, str] = {}
+    for rec in signal_records:
+        task_id = str(rec.get("task_id") or "")
+        digest = str(rec.get("final_digest") or "")
+        if task_id and digest:
+            finals[task_id] = digest
+    acc: dict[str, dict] = {}
+    for run in run_records:
+        if not run.accepted or not run.output_digest:
+            continue
+        final_digest = finals.get(run.task_id)
+        if not final_digest:
+            continue
+        entry = acc.setdefault(
+            run.plugin_id,
+            {"plugin_id": run.plugin_id, "attributed_runs": 0, "kept_final": 0, "superseded": 0},
+        )
+        entry["attributed_runs"] += 1
+        if run.output_digest == final_digest:
+            entry["kept_final"] += 1
+        else:
+            entry["superseded"] += 1
+    for entry in acc.values():
+        total = entry["attributed_runs"]
+        entry["kept_final_rate"] = round(entry["kept_final"] / total, 4) if total else 0.0
+    return acc
 
 
 def join_author_retention(run_records, signals: dict[str, float]) -> dict[str, dict]:

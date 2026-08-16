@@ -131,40 +131,25 @@ def _default_runs_path():
 def persist_run_records(
     records: list[BehaviorPluginRunRecord], history_path=None
 ) -> None:
-    """打磨运行记录追加写入 JSONL(失败仅告警,不阻断创作)。"""
+    """打磨运行记录追加写入(批次C:统一遥测层,含轮转;失败不阻断)。"""
     if not records:
         return
-    import json as _json
+    from services.telemetry_store import append_record, resolve_path
 
-    path = history_path or _default_runs_path()
-    try:
-        from pathlib import Path
-
-        path = Path(path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as f:
-            for rec in records:
-                f.write(_json.dumps(rec.model_dump(), ensure_ascii=False) + "\n")
-    except Exception as exc:
-        logger.warning("[BehaviorPlugins] 运行落账失败(不阻断): %s", exc)
+    path = resolve_path("behavior_plugin_runs.jsonl", history_path)
+    for rec in records:
+        append_record(path, rec.model_dump())
 
 
 def load_run_records(history_path=None) -> list[BehaviorPluginRunRecord]:
-    path = history_path or _default_runs_path()
-    from pathlib import Path
+    """读取运行记录(脏行容忍;旧格式无 run_id/指纹字段自动取默认值)。"""
+    from services.telemetry_store import read_records, resolve_path
 
-    path = Path(path)
-    if not path.exists():
-        return []
-    import json as _json
-
+    path = resolve_path("behavior_plugin_runs.jsonl", history_path)
     out = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line:
-            continue
+    for data in read_records(path):
         try:
-            out.append(BehaviorPluginRunRecord.model_validate(_json.loads(line)))
+            out.append(BehaviorPluginRunRecord.model_validate(data))
         except Exception:
             continue
     return out
@@ -326,9 +311,11 @@ async def apply_polish_passes(
     editor_mode = str(config_manager.get("behavior_plugins.editor_mode", "rapid") or "rapid")
     pass_timeout = float(config_manager.get("behavior_plugins.request_timeout", 45) or 45)
     for spec in reg.active_for(ctx):
+        from services.telemetry_store import text_digest
+
         rec = BehaviorPluginRunRecord(
             plugin_id=spec.plugin_id, task_id=ctx.task_id,
-            input_chars=len(text),
+            input_chars=len(text), input_digest=text_digest(text),
         )
         t0 = time.time()
         try:
@@ -347,6 +334,8 @@ async def apply_polish_passes(
             if ok:
                 text = str(output).strip()
                 rec.output_chars = len(text)
+                # 采纳的通行才留产物指纹:作者定稿指纹与之比对即插件级归因
+                rec.output_digest = text_digest(text)
             else:
                 rec.output_chars = len(str(output or ""))
                 logger.info("[BehaviorPlugins] %s 验收未过(%s),回退通行前文本", spec.plugin_id, reason)

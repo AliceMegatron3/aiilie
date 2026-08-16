@@ -12,7 +12,13 @@ from pydantic import BaseModel, Field
 
 from api.deps import verify_token
 from models.behavior_plugin import PluginSource, PluginStatus
-from services.author_signals import join_author_retention, load_author_signals, record_author_signal
+from services.author_signals import (
+    attribute_plugin_outcomes,
+    join_author_retention,
+    load_author_signal_records,
+    load_author_signals,
+    record_author_signal,
+)
 from services.behavior_plugins import (
     aggregate_stats,
     behavior_plugin_registry,
@@ -56,12 +62,17 @@ MIN_AUTHOR_SIGNAL_SAMPLES = 5
 async def behavior_plugin_stats():
     runs = load_run_records()
     stats = aggregate_stats(runs)
-    # P2后续:作者信号接棒——每插件作者保留率(真信号,粗粒度归属)
+    # 保留率(粗粒度:同任务通过插件共享)
     retention = join_author_retention(runs, load_author_signals())
     for pid, entry in retention.items():
         stats.setdefault(pid, {"plugin_id": pid, **entry})["author_retention"] = entry["author_retention"]
         stats[pid]["signal_tasks"] = entry["tasks"]
-    # 样本充足性标记:治理决策不应建立在小样本上
+    # 指纹归因(细粒度:产物指纹是否等于作者定稿指纹)
+    attribution = attribute_plugin_outcomes(runs, load_author_signal_records())
+    for pid, entry in attribution.items():
+        stats.setdefault(pid, {"plugin_id": pid})["kept_final_rate"] = entry["kept_final_rate"]
+        stats[pid]["attributed_runs"] = entry["attributed_runs"]
+    # 样本充足性标记
     for entry in stats.values():
         samples = int(entry.get("signal_tasks", 0) or 0)
         entry["insufficient_sample"] = samples < MIN_AUTHOR_SIGNAL_SAMPLES
