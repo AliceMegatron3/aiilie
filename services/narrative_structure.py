@@ -117,9 +117,19 @@ class NarrativeStructureService:
                 status TEXT NOT NULL DEFAULT 'OUTLINE',
                 budget TEXT,
                 actuals TEXT,
+                arc_pattern_id TEXT,
+                arc_stage TEXT,
                 updated_at TEXT NOT NULL
             )
         """)
+        # P6:弧线绑定列(存量库补列,重复列错误忽略)
+        for col in ("arc_pattern_id", "arc_stage"):
+            try:
+                await self.db.conn.execute(
+                    f"ALTER TABLE narrative_chapters ADD COLUMN {col} TEXT"
+                )
+            except Exception:
+                pass
         await self.db.conn.execute("""
             CREATE TABLE IF NOT EXISTS narrative_threads (
                 thread_id TEXT PRIMARY KEY,
@@ -192,13 +202,14 @@ class NarrativeStructureService:
         await self.db.conn.execute(
             """INSERT INTO narrative_chapters
                (chapter_id, project_id, volume_id, chapter_number, title, outline_text,
-                beats, beats_confirmed, status, budget, actuals, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                beats, beats_confirmed, status, budget, actuals, arc_pattern_id, arc_stage, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(chapter_id) DO UPDATE SET
                    volume_id=excluded.volume_id, title=excluded.title,
                    outline_text=excluded.outline_text, beats=excluded.beats,
                    beats_confirmed=excluded.beats_confirmed, status=excluded.status,
                    budget=excluded.budget, actuals=excluded.actuals,
+                   arc_pattern_id=excluded.arc_pattern_id, arc_stage=excluded.arc_stage,
                    updated_at=excluded.updated_at""",
             (chapter.chapter_id, chapter.project_id, chapter.volume_id,
              chapter.chapter_number, chapter.title, chapter.outline_text,
@@ -206,6 +217,7 @@ class NarrativeStructureService:
              1 if chapter.beats_confirmed else 0, chapter.status.value,
              chapter.budget.model_dump_json() if chapter.budget else None,
              chapter.actuals.model_dump_json() if chapter.actuals else None,
+             chapter.arc_pattern_id, chapter.arc_stage,
              chapter.updated_at),
         )
         await self.db.conn.commit()
@@ -395,6 +407,14 @@ class NarrativeStructureService:
                 if b.max_words:
                     note += f"/篇幅上限约{b.max_words}字"
                 parts.append(note + "(软目标,可依创作弹性微调,事后对账)")
+        # P6:弧线阶段上下文(supervisor拍级分解与插件触发维的原料)
+        if target is not None and target.arc_stage:
+            tension = target.budget.conflict_intensity if target.budget else ""
+            parts.append(
+                f"【弧线】本章处于「{target.arc_stage}」阶段"
+                + (f",张力目标{tension}" if tension != "" else "")
+                + "——按阶段张力把握推进力度"
+            )
         audits = await self.audit_threads(project_id, current_chapter=chapter_number)
         due = [
             a for a in audits

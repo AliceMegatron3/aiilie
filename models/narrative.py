@@ -104,6 +104,9 @@ class ChapterOutline(BaseModel):
     status: ChapterStatus = ChapterStatus.OUTLINE
     budget: PacingBudget | None = None
     actuals: PacingActuals | None = None
+    # P6:弧线绑定(套用弧线模式派生预算时写入,生成简报携带弧线阶段)
+    arc_pattern_id: str | None = None
+    arc_stage: str | None = None
     updated_at: str = Field(default_factory=_now)
 
 
@@ -137,3 +140,52 @@ class PacingVariance(BaseModel):
     tempo_delta: int
     word_count: int
     flags: list[str] = Field(default_factory=list, description="告警标记(如 conflict_below_target)")
+
+
+# ── P6:弧线模式(多章剧情骨架,作者手法指纹的载体) ─────────────
+
+class ArcStage(BaseModel):
+    """弧线阶段:名称+张力目标(0-10)。"""
+    name: str
+    tension_target: int = Field(ge=0, le=10)
+    notes: str = ""
+
+
+class ArcPattern(BaseModel):
+    """弧线模式卡:骨架(阶段序列)+变异槽位+来源。
+
+    奇遇弧/副本弧/结伴任务弧等——每位作者的标志性长剧情起伏手法;
+    起伏配比经 derive_budget_sequence 派生为整卷章级预算序列。
+    """
+    pattern_id: str = Field(default_factory=lambda: _gen_id("arc"))
+    name: str
+    description: str = ""
+    stages: list[ArcStage] = Field(min_length=3)
+    variation_slots: list[str] = Field(default_factory=list)
+    source: str = Field(default="crafted", description="crafted手工/quantified量化挖掘")
+    status: str = Field(default="active", description="candidate/gray/active/retired(同浅知识律)")
+
+    def stage_for_chapter(self, chapter_index: int, n_chapters: int) -> ArcStage:
+        """第 chapter_index 章(0基)落在哪个阶段(等比分配)。"""
+        if n_chapters <= 0:
+            return self.stages[0]
+        idx = min(len(self.stages) - 1, chapter_index * len(self.stages) // n_chapters)
+        return self.stages[idx]
+
+    def derive_budget_sequence(self, n_chapters: int) -> list[PacingBudget]:
+        """起伏配比→章级预算序列(阶段衔接章取相邻均值平滑)。"""
+        budgets: list[PacingBudget] = []
+        for i in range(n_chapters):
+            stage = self.stage_for_chapter(i, n_chapters)
+            tension = stage.tension_target
+            # 阶段末章与下一阶段平滑(非最终阶段且为该阶段最后一章)
+            next_stage = self.stage_for_chapter(i + 1, n_chapters) if i + 1 < n_chapters else None
+            if next_stage and self.stage_for_chapter(i + 1, n_chapters).name != stage.name:
+                tension = (tension + next_stage.tension_target) // 2
+            budgets.append(PacingBudget(
+                conflict_intensity=max(0, min(10, tension)),
+                emotion_intensity=max(0, min(10, tension)),
+                tempo=7 if tension >= 7 else 5,
+                notes=f"{self.name}·{stage.name}阶段",
+            ))
+        return budgets
