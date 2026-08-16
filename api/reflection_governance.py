@@ -118,12 +118,6 @@ async def author_review(
         }
 
 
-@router.get("/reflection/skills/candidates")
-async def list_skill_candidates(status: str | None = None):
-    """读取技能候选缓冲池；正式技能不从该接口直接启用。"""
-    return {"data": _skill_governance.list_candidates(status=status)}
-
-
 @router.post("/reflection/skills/candidates")
 async def submit_skill_candidate(payload: SkillCandidateRequest):
     """提交候选并执行规则初审，禁止绕过缓冲池直接落地。"""

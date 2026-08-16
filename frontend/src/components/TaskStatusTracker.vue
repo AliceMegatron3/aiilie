@@ -108,7 +108,7 @@ const issueHint = computed(() => {
 async function fetchTask() {
   if (!props.taskId) return
   try {
-    const res = await api.get(`/api/v1/tasks/${props.taskId}`)
+    const res = await api.tasks.detail(props.taskId)
     task.value = res?.data ?? res
     taskError.value = ''
   } catch (e) {
@@ -118,8 +118,8 @@ async function fetchTask() {
 async function fetchResources() {
   try {
     const [statsRes, queueRes] = await Promise.all([
-      api.get('/api/v1/system/resource-stats'),
-      api.get('/api/v1/system/queue'),
+      api.system.resourceStats(),
+      api.system.queue(),
     ])
     resourceStats.value = statsRes?.data ?? statsRes
     queueInfo.value = queueRes?.data ?? queueRes
