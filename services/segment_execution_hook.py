@@ -49,9 +49,17 @@ def build_model_execution_hook(dispatcher_getter: DispatcherGetter):
             # 显式失败而非退回占位输出：占位文本会污染创作链路与学习遥测
             raise RuntimeError("模型调度器未装配，分段执行拒绝产生占位输出")
 
+        # retry_prompt 来自流水线的通用重试文案(旧JSON契约遗留,要求模型输出
+        # 合法JSON)——本钩子契约下模型无需输出JSON,钩子自行封装信封;
+        # 若照搬该文案,模型会把创作正文包裹成JSON(中转站实测踩坑)。
+        # 此处仅将"重试"作为信号,改写为创作导向的重试指令。
         prompt = content_payload
         if retry_prompt:
-            prompt = f"{retry_prompt}\n\n{content_payload}"
+            prompt = (
+                "上一次尝试未成功。请重新完成以下创作任务,"
+                "直接输出小说正文,不要输出 JSON、分析或解释。\n\n"
+                + content_payload
+            )
 
         # project_id 由任务提交时注入首段 tail_context，随尾巴接力传递
         project_id = (tail_context or {}).get("project_id") or None

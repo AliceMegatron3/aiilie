@@ -91,6 +91,23 @@ async def test_model_hook_refuses_missing_dispatcher_and_empty_output():
         await hook2("内容", {}, "cloud")
 
 
+@pytest.mark.asyncio
+async def test_model_hook_rewrites_retry_prompt_for_creation():
+    """重试时不得沿用流水线的"输出合法JSON"文案(旧契约遗留),
+    否则模型会把正文包裹成JSON——中转站实测踩坑。"""
+    dispatcher = _RecordingDispatcher(outputs=["重试后的正文。"])
+    hook = build_model_execution_hook(lambda: dispatcher)
+
+    raw = await hook("写一段场景", {}, "cloud", retry_prompt="你的上一次输出并非合法 JSON,请仅输出合法 JSON")
+    envelope = json.loads(raw)
+    assert envelope["result_content"] == "重试后的正文。"
+
+    sent_prompt = dispatcher.calls[0]["prompt"]
+    assert "合法 JSON" not in sent_prompt
+    assert sent_prompt.startswith("上一次尝试未成功")
+    assert "写一段场景" in sent_prompt
+
+
 # ──────────────────────────────────────────────────────────────
 # A2. 流水线接真实钩子后产出真实正文，且 project_id 沿尾巴接力
 # ──────────────────────────────────────────────────────────────
