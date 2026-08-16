@@ -194,8 +194,19 @@ class ModelDispatcher:
                 bounded_context.trace.append(budget_event)
             world_prefix = bounded_context.as_prompt() if contexts else ""
             if lock_prefix:
-                # 锁定场 must 集最前(稳定前缀),其后才是分层世界上下文
                 return lock_prefix + world_prefix
+            # P3:检索未命中日志——项目上下文为空/过薄即记缺口信号
+            # (缺口闭环原料:缺口聚账→补全建议→作者确认→draft卡)
+            if project_id and not world_prefix:
+                try:
+                    from services.knowledge_completion import log_retrieval_miss
+
+                    card_count = (
+                        len(world_context.must_include) + len(world_context.should_include)
+                    )
+                    log_retrieval_miss(project_id, query, card_count)
+                except Exception as exc:
+                    logger.debug("未命中日志失败(忽略): %s", exc)
             return world_prefix
         except Exception as e:
             logger.warning("提取知识库上下文时发生异常, 将降级空上下文执行: %s", e)
