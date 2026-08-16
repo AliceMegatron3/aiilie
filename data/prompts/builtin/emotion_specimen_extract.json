@@ -1,0 +1,17 @@
+{
+  "template_id": "emotion_specimen_extract",
+  "name": "Emotion Specimen Extraction",
+  "category": "extraction",
+  "version": "1.0.0",
+  "template_text": "你是文学手法分析师。从以下文本中识别最有手法价值的情绪表达片段,每片给出:情绪类型(挂本体词汇,如 悲恸/隐忍/狂喜)、强度带(low/mid/high/chaotic)、表达方式(dialogue对话/action动作/interior内心/scene场景烘托)、原文摘录(不超过80字)、手法注解(它为什么奏效)、变体空间(同一情绪的合法变体维度)。\n仅输出JSON数组,最多3片,没有合适片段输出 []。格式:\n[{\"emotion_type\":\"...\",\"intensity_band\":\"mid\",\"expression_mode\":\"dialogue\",\"specimen_text\":\"...\",\"craft_note\":\"...\",\"variation_slots\":[\"...\"]}]\n\n文本:\n{{ content }}",
+  "variables": [
+    "content"
+  ],
+  "tags": [
+    "extraction",
+    "emotion_engine",
+    "specimen",
+    "p5"
+  ],
+  "is_builtin": true
+}

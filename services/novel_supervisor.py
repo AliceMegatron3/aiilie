@@ -397,6 +397,24 @@ class NovelSupervisor:
             total_tokens = 0
             accumulated_draft: str | None = None
             merged_rag_filters = self._merge_rag_filters(rag_filters)
+            # P5(情感标本):确定性情绪推断→标本少样本块(项目级优先,硬顶2枚);
+            # 同时作为 TriggerContext 情绪维供打磨插件触发。失败静默降级。
+            emotion_state = None
+            specimen_block = ""
+            if self.indexer is not None:
+                try:
+                    from services.emotion_specimens import (
+                        emotion_context_block,
+                        infer_emotion_state,
+                    )
+
+                    emotion_state = infer_emotion_state(cmd_text)
+                    if emotion_state:
+                        specimen_block = await emotion_context_block(
+                            self.indexer, emotion_state, project_id=project_id
+                        )
+                except Exception as exc:
+                    logger.warning("[NovelSupervisor] 情绪标本上下文构建失败(跳过): %s", exc)
             for role_key, cfg in agent_config.items():
                 if role_key.startswith("_"):
                     continue
@@ -423,7 +441,8 @@ class NovelSupervisor:
                             "请在保留草稿优点的基础上，以你的专职视角完善重写，输出完整正文。"
                         )
                     else:
-                        content = cmd_text
+                        # P5:首轮携带情绪标本少样本块(学手法不学词句)
+                        content = (specimen_block + cmd_text) if specimen_block else cmd_text
                     # 阶段1：渲染创作导向角色 prompt（技能覆盖→novel_role_*→兜底）
                     prompt = self._render_role_creation_prompt(
                         role_key, cfg, template_overrides, content
@@ -477,7 +496,7 @@ class NovelSupervisor:
 
                         accumulated_draft, polish_records = await apply_polish_passes(
                             accumulated_draft, self.dispatcher,
-                            TriggerContext(task_id=task_id),
+                            TriggerContext(task_id=task_id, emotion_state=emotion_state),
                         )
                         # P2:运行落账(效果统计原料,失败不阻断)
                         from services.behavior_plugins import persist_run_records
