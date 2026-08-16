@@ -3,20 +3,29 @@ services/scoring_engine.py — 生成后打分引擎 (Phase 9)
 ===================================================
 在文章生成完成后，由“纪检委”子智能体对大模型的输出进行交叉审核，
 判断是否遵循了书库卡片的要求，并将有价值的经验（打分较低时）沉淀到全局经验库。
+
+阶段2（学习环接线，讨论稿20260816）：评分结果持久化为 JSONL
+（app_data/scoring_history.jsonl，路径可注入），使分数从"算完即弃"
+变为可挖掘的真实遥测信号（供流程反思的预算达成度/质量维度消费）。
 """
 import asyncio
+import json
 import logging
 import uuid
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 class ScoringEngine:
     """生成后打分与经验沉淀引擎"""
-    
-    def __init__(self, reflection_engine=None):
+
+    def __init__(self, reflection_engine=None, history_path: Path | None = None):
         # 依赖注入经验反思引擎，用于将打分结果写入经验库
         self.reflection_engine = reflection_engine
+        # 评分历史落盘路径；None 时惰性解析到应用数据目录（测试可注入临时路径）
+        self._history_path = history_path
 
     async def score_generation(
         self, 
@@ -66,7 +75,10 @@ class ScoringEngine:
             "score": score,
             "improvements": improvements
         }
-        
+
+        # 阶段2：评分持久化（无论高低分都留痕，低分经验另行沉淀）
+        self._persist_score_record(project_id, command_text, generated_content, used_cards, result)
+
         # 如果得分低于 80 分，将建议写入经验库
         if score < 80:
             logger.info("[ScoringEngine] 分数低于预期，将建议沉淀为全局经验法则！")
@@ -78,6 +90,39 @@ class ScoringEngine:
                     logger.error("[ScoringEngine] 沉淀经验失败: %s", e)
                     
         return result
+
+    def _resolve_history_path(self) -> Path:
+        if self._history_path is not None:
+            return self._history_path
+        from core.path_resolver import get_app_data_dir
+        return get_app_data_dir() / "scoring_history.jsonl"
+
+    def _persist_score_record(
+        self,
+        project_id: str,
+        command_text: str,
+        generated_content: str,
+        used_cards: Optional[list],
+        result: dict,
+    ) -> None:
+        """评分记录追加写入 JSONL（失败不阻断打分主流程）。"""
+        record = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "project_id": project_id,
+            "command_excerpt": str(command_text or "")[:200],
+            "content_length": len(generated_content or ""),
+            "used_cards_count": len(used_cards or []),
+            "score": result.get("score", 0),
+            "improvements": result.get("improvements", []),
+            "heuristic": True,  # 标记当前为启发式评分，真实指标阶段替换后改 false
+        }
+        try:
+            path = self._resolve_history_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        except Exception as exc:
+            logger.warning("[ScoringEngine] 评分持久化失败（不阻断）: %s", exc)
 
     async def _record_experience(self, improvement: str):
         """将失败教训总结为全局提示词锁定规则"""

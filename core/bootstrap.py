@@ -228,6 +228,9 @@ async def setup_reflection(app: FastAPI) -> None:
     collector = DataCollector(db, indexer, pm)
     trigger = ReflectionTrigger(db, task_manager, collector)
     await trigger.initialize()
+    # 阶段2（学习环接线）：快照→抽取器→应用器 miners 注入，
+    # 终结 RuleExtractor/SkillExtractor 实例化后无人调用、快照只写不读的状态
+    trigger.attach_miners(rule_extractor, skill_extractor, applier)
     app.state.reflection_trigger = trigger
 
     # 【0-2 修复】将全局 LLM 客户端注入反思引擎，去除硬编码反思结论。
@@ -349,10 +352,9 @@ async def setup_quantification(app: FastAPI) -> None:
                 logger.warning("[Bootstrap] 学习任务被消费但 learning_engine 未装配，跳过: %s", task.task_id)
             return
         if task.task_type == "reflection":
-            trigger = getattr(app.state, "reflection_trigger", None)
-            if trigger is not None:
-                await trigger.process_task(task)
-            # 第十部分：多智能体自学习反思任务（novellearn_ 前缀，走同一低优先级队列）
+            # 阶段2修复：novellearn_ 自学习反思任务直接走学习环，
+            # 不再先跑一遍全库快照（原先每次多智能体创作后都重复
+            # 拍全量快照，纯浪费 IO，且与学习环自身的审计分析重复）
             if getattr(task, "task_id", "").startswith("novellearn_"):
                 loop = getattr(app.state, "novel_agent_learning_loop", None)
                 if loop is not None:
@@ -360,6 +362,15 @@ async def setup_quantification(app: FastAPI) -> None:
                         await loop.process_reflection_task()
                     except Exception as exc:
                         logger.error("[Bootstrap] 多智能体反思学习执行失败: %s", exc)
+                else:
+                    logger.warning(
+                        "[Bootstrap] novellearn_ 任务被消费但学习环未装配，跳过: %s",
+                        task.task_id,
+                    )
+                return
+            trigger = getattr(app.state, "reflection_trigger", None)
+            if trigger is not None:
+                await trigger.process_task(task)
             return
         if task.task_type == "generate_image":
             # 补丁4：分镜生图任务（StoryboardService 懒装配）

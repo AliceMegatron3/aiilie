@@ -145,12 +145,54 @@ class ReflectionTrigger:
         self.db = db
         self.task_manager = task_manager
         self.collector = collector
-        
+
         self.report_dir = get_app_data_dir() / "reflection_reports"
         self.report_dir.mkdir(parents=True, exist_ok=True)
-        
+
         self._is_collecting = False  # 并发锁：阻止多次连续反思引发的重复 I/O 雪崩
         self._cron_task = None
+
+        # 阶段2（学习环接线，讨论稿20260816第三章）：快照矿工注入位。
+        # 此前 RuleExtractor/SkillExtractor 在 bootstrap 实例化后从未被调用，
+        # 快照落盘即死胡同（universal_skills 永远为空）。
+        self.rule_extractor: Any | None = None
+        self.skill_extractor: Any | None = None
+        self.optimization_applier: Any | None = None
+
+    def attach_miners(
+        self, rule_extractor: Any | None, skill_extractor: Any | None,
+        optimization_applier: Any | None,
+    ) -> None:
+        """注入快照挖掘链（规则/技能抽取器 + 成果应用器），由 bootstrap 装配。"""
+        self.rule_extractor = rule_extractor
+        self.skill_extractor = skill_extractor
+        self.optimization_applier = optimization_applier
+
+    async def _mine_snapshot(self, snapshot: dict[str, Any], session_id: str) -> None:
+        """阶段2：快照→抽取器→应用器。任何失败不阻断反思会话主流程。"""
+        if self.rule_extractor is None and self.skill_extractor is None:
+            return
+        rules: list = []
+        skills: list = []
+        try:
+            if self.rule_extractor is not None:
+                rules = self.rule_extractor.extract_rules(snapshot) or []
+        except Exception as exc:
+            logger.warning("[Reflection] 规则抽取失败（不阻断）: %s", exc)
+        try:
+            if self.skill_extractor is not None:
+                skills = await self.skill_extractor.extract_skills(snapshot) or []
+        except Exception as exc:
+            logger.warning("[Reflection] 技能抽取失败（不阻断）: %s", exc)
+        logger.info(
+            "[Reflection] 会话 %s 挖掘完成：候选规则 %d 条、候选技能 %d 项",
+            session_id, len(rules), len(skills),
+        )
+        if self.optimization_applier is not None and (rules or skills):
+            try:
+                await self.optimization_applier.apply_discoveries(rules, skills)
+            except Exception as exc:
+                logger.warning("[Reflection] 挖掘成果下发失败（不阻断）: %s", exc)
         
     def start_cron_scheduler(self):
         """启动基于 config 的 Cron 表达式定时触发器"""
@@ -254,7 +296,11 @@ class ReflectionTrigger:
             await self.db.conn.commit()
             
             logger.info("[Reflection] 数据快照采集成功，落盘至: %s", report_file)
-            
+
+            # 4. 阶段2接线：快照落盘后立即挖掘（抽取器→应用器），
+            # 终结"快照只写不读"的死胡同
+            await self._mine_snapshot(snapshot, session_id)
+
         except Exception as e:
             logger.exception("[Reflection] 快照采集引发致命异常")
             now = datetime.now(timezone.utc).isoformat()
