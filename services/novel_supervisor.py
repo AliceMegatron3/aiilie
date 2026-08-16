@@ -197,6 +197,72 @@ class NovelSupervisor:
     def _build_rag_filters(self, skills: list[NovelAgentSkill]) -> list[dict[str, Any]]:
         """收集技能中的 RAG 过滤条件（叠加式）。"""
         return [s.rag_filter for s in skills if s.rag_filter]
+
+    @staticmethod
+    def _merge_rag_filters(rag_filters: list[dict[str, Any]]) -> dict[str, Any] | None:
+        """阶段1：合并多个技能的 rag_filter 为单一生效集（后者覆盖同名字段）。
+
+        合并结果经 dispatcher.card_filters 下推 WorldContextBuilder，
+        实现技能对卡片检索范围的定向（此前构建后从未消费）。
+        """
+        merged: dict[str, Any] = {}
+        for flt in rag_filters or []:
+            if isinstance(flt, dict):
+                merged.update(flt)
+        return merged or None
+
+    # 角色 -> 创作模板ID / 内置人设兜底（模板缺失时）
+    _ROLE_CREATION_META: dict[str, tuple[str, str]] = {
+        "lore_expert": ("novel_role_lore", "设定专家（世界观、时代质感、制度地理器物）"),
+        "combat_expert": ("novel_role_combat", "动作与冲突专家（战斗场面、冲突张力编排）"),
+        "emotion_expert": ("novel_role_emotion", "情感与人物专家（情感、对话交锋、心理刻画）"),
+        "event_expert": ("novel_role_event", "情节与结构专家（事件推进、因果链、节奏）"),
+    }
+
+    def _render_role_creation_prompt(
+        self,
+        role_key: str,
+        cfg: dict[str, Any],
+        template_overrides: dict[str, Any],
+        content: str,
+    ) -> str:
+        """阶段1：为子智能体渲染创作导向的专职 prompt。
+
+        优先级链：技能模板覆盖（现有行为保留）→ 内置创作角色模板
+        （novel_role_*，data/prompts/builtin）→ 内置人设兜底 → 原始指令兜底。
+        注意：cfg.template_id 默认指向 expert_* 抽取模板（为卡片抽取设计），
+        创作场景改用 novel_role_* 模板，不复用抽取模板。
+        """
+        template_id = cfg.get("template_id", f"expert_{role_key}")
+        if template_overrides.get(template_id):
+            try:
+                return template_overrides[template_id].format(content=content)
+            except Exception as exc:
+                logger.warning(
+                    "[NovelSupervisor] 技能模板 %s 渲染失败，回退角色模板: %s",
+                    template_id, exc,
+                )
+        meta = self._ROLE_CREATION_META.get(role_key)
+        if meta:
+            creation_template_id, persona = meta
+            try:
+                from services.prompt_template_manager import prompt_manager
+
+                return prompt_manager.render_or_fallback(
+                    creation_template_id,
+                    {"content": content},
+                    lambda p=persona, c=content: (
+                        f"你是长篇小说创作团队中的{p}。"
+                        "依据任务撰写正文章节，直接输出小说正文，"
+                        "不要输出任何分析、标题编号或 JSON。\n\n任务与素材：\n" + c
+                    ),
+                )
+            except Exception as exc:
+                logger.warning(
+                    "[NovelSupervisor] 创作模板 %s 渲染异常，回退原始指令: %s",
+                    creation_template_id, exc,
+                )
+        return content
     # ============================================================
     # 3. 审计采集
     # ============================================================
@@ -326,7 +392,11 @@ class NovelSupervisor:
                 task_id, len(rules), len(skills), compute_mode, max_rounds,
             )
             # 2. 执行各子 Agent（基于规则/技能叠加后的配置）
+            # 阶段1：串行精修——后续专家在前序产出草稿上完善，产出汇合为最终正文
+            #（此前子代理输出被整体丢弃，仅保留计数与汇总字符串）
             total_tokens = 0
+            accumulated_draft: str | None = None
+            merged_rag_filters = self._merge_rag_filters(rag_filters)
             for role_key, cfg in agent_config.items():
                 if role_key.startswith("_"):
                     continue
@@ -344,25 +414,35 @@ class NovelSupervisor:
                 role_errors = 0
                 role_ooc = 0
                 try:
-                    # 模板覆盖（叠加式，不修改内置模板）
-                    template_id = cfg.get("template_id", f"expert_{role_key}")
-                    prompt = cmd_text
-                    if template_overrides.get(template_id):
-                        prompt = template_overrides[template_id].format(
-                            content=cmd_text
+                    # 阶段1：创作内容构造——首轮为原始指令，后续轮携带前序草稿做精修
+                    if accumulated_draft:
+                        content = (
+                            f"{cmd_text}\n\n"
+                            "【当前草稿（前序专家产出）】\n"
+                            f"{accumulated_draft}\n\n"
+                            "请在保留草稿优点的基础上，以你的专职视角完善重写，输出完整正文。"
                         )
+                    else:
+                        content = cmd_text
+                    # 阶段1：渲染创作导向角色 prompt（技能覆盖→novel_role_*→兜底）
+                    prompt = self._render_role_creation_prompt(
+                        role_key, cfg, template_overrides, content
+                    )
                     for r in range(max(1, max_rounds)):
                         if self.dispatcher is not None:
                             result = await self.dispatcher.dispatch(
                                 prompt,
                                 project_id=project_id or None,
                                 override_mode=compute_mode if compute_mode in ("rapid", "think") else None,
+                                card_filters=merged_rag_filters,
                             )
                         else:
                             # 无调度器时的本地兜底（模拟/直通模式）
                             result = cmd_text
                         role_calls += 1
                         role_tokens += self._estimate_tokens(result or "")
+                        if result and str(result).strip():
+                            accumulated_draft = str(result)
                         # 简易命中评估：包含指令关键词视为命中
                         base_hit = 0.9 if (result and len(result) > 50) else 0.5
                         role_hit_sum += base_hit
@@ -427,9 +507,17 @@ class NovelSupervisor:
                         await self._skill_store.record_skill_apply(skill_id, audit_row)
                     except Exception as exc:
                         logger.warning("[NovelSupervisor] 技能 %s 效果统计失败: %s", skill_id, exc)
+            # 阶段1：返回汇合后的真实正文（串行精修的最终草稿），
+            # 汇总信息降级为元数据（此前正文位只是一句汇总字符串）
+            summary = (
+                f"[NovelSupervisor] 多智能体创作完成 "
+                f"(task={task_id}, agents={active_count}, tokens={total_tokens})"
+            )
+            final_text = (accumulated_draft or "").strip() or summary
             return {
                 "success": True,
-                "result": f"[NovelSupervisor] 多智能体创作完成 (task={task_id}, agents={active_count}, tokens={total_tokens})",
+                "result": final_text,
+                "summary": summary,
                 "audit_id": audit_id,
                 "used_rule_ids": list(self._active_rule_ids),
                 "used_skill_ids": list(self._active_skill_ids),

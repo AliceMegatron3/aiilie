@@ -106,12 +106,33 @@ class ModelDispatcher:
         return await self._call_cloud_model(prompt, temperature=temperature, max_tokens=max_tokens)
 
     async def _fetch_knowledge_context(
-        self, bind_book_ids: list[str] | None, query: str = ""
+        self,
+        bind_book_ids: list[str] | None,
+        query: str = "",
+        card_filters: dict[str, Any] | None = None,
     ) -> str:
-        """Build staged card/document context instead of concatenating a whole book."""
+        """Build staged card/document context instead of concatenating a whole book.
+
+        card_filters（阶段1）：调用方（如多智能体技能 rag_filter）透传的
+        检索过滤条件，直接下推 WorldContextBuilder.build(**filters)。
+        含 search_cards 不支持的键时整体忽略过滤条件并告警，保证卡片
+        上下文不因脏过滤参数而整体丢失。
+        """
         try:
             builder = WorldContextBuilder(self.indexer)
-            world_context = await builder.build(query=query, book_ids=bind_book_ids)
+            world_context = None
+            if card_filters:
+                try:
+                    world_context = await builder.build(
+                        query=query, book_ids=bind_book_ids, **card_filters
+                    )
+                except TypeError as te:
+                    logger.warning(
+                        "card_filters 含不支持的检索参数，已忽略过滤条件: %s", te
+                    )
+                    world_context = None
+            if world_context is None:
+                world_context = await builder.build(query=query, book_ids=bind_book_ids)
             self.last_world_context = world_context
             contexts = []
             current_tokens = 0
@@ -165,6 +186,7 @@ class ModelDispatcher:
         project_id: str | None = None,
         override_mode: Literal["rapid", "think"] | None = None,
         session_id: str | None = None,
+        card_filters: dict[str, Any] | None = None,
     ) -> str:
         """
         统一模型调度入口。
@@ -202,7 +224,9 @@ class ModelDispatcher:
                 logger.warning("[Dispatcher] 会话池读取失败，降级裸调用: %s", exc)
                 sess = None
 
-        result = await self._dispatch_inner(context_prompt, project_id, override_mode)
+        result = await self._dispatch_inner(
+            context_prompt, project_id, override_mode, card_filters=card_filters
+        )
 
         if sess is not None:
             try:
@@ -219,7 +243,8 @@ class ModelDispatcher:
         self,
         prompt: str,
         project_id: str | None = None,
-        override_mode: Literal["rapid", "think"] | None = None
+        override_mode: Literal["rapid", "think"] | None = None,
+        card_filters: dict[str, Any] | None = None,
     ) -> str:
         """调度核心执行体（不含会话池逻辑，由 dispatch 包装）。"""
         async with self._semaphore:
@@ -243,7 +268,9 @@ class ModelDispatcher:
                     )
                     mode = "rapid"
 
-            context_prefix = await self._fetch_knowledge_context(bind_book_ids, query=prompt)
+            context_prefix = await self._fetch_knowledge_context(
+                bind_book_ids, query=prompt, card_filters=card_filters
+            )
             final_prompt = f"{context_prefix}{prompt}"
 
             # [预留抽象接口] 调度规则动态接入

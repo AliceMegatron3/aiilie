@@ -255,8 +255,13 @@ class GlobalRouter:
         segment_strategy: str = "auto",
         mode: str = "rapid",
         idempotency_key: str | None = None,
+        project_id: str | None = None,
     ) -> CommandTask:
-        """构造标准 CommandTask 并提交批次1引擎。"""
+        """构造标准 CommandTask 并提交批次1引擎。
+
+        project_id（阶段1）：创作任务的项目绑定，注入首段尾巴随接力传递，
+        使执行钩子经 dispatcher 加载项目绑定书库的卡片上下文。
+        """
         priority = _PRIORITY_LEVEL_TO_BATCH1.get(priority_level, 4)
         task = await self.batch1_task_manager.submit_task(
             raw_command=cmd_text,
@@ -264,6 +269,7 @@ class GlobalRouter:
             segment_strategy=segment_strategy,
             model_source=self._map_mode_to_model_source(mode),
             idempotency_key=idempotency_key,
+            project_id=project_id,
         )
         logger.info(
             "[GlobalRouter] 已提交批次1引擎: task=%s, 分段数=%d, 优先级=%d",
@@ -502,6 +508,7 @@ class GlobalRouter:
                     segment_strategy=strategy,
                     mode=mode,
                     idempotency_key=req.options.get("idempotency_key"),
+                    project_id=req.project_id,
                 )
                 logger.info(
                     "[GlobalRouter] 长任务判定生效，改走批次1引擎: "

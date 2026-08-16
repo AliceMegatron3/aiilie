@@ -414,6 +414,19 @@ async def setup_quantification(app: FastAPI) -> None:
     app.state.model_dispatcher = dispatcher
     app.state.divergent_engine = divergent_engine
 
+    # 阶段1（主链路真实化，讨论稿20260816第三章修复顺序第1步）：
+    # 为批次1分段流水线注入真实模型执行钩子，终结长任务创作的占位符输出。
+    # dispatcher 经延迟 getter 解引用，与 setup_batch1_engine 的装配顺序解耦。
+    from services.segment_execution_hook import build_model_execution_hook
+    batch1_tm = getattr(app.state, "batch1_task_manager", None)
+    if batch1_tm is not None:
+        batch1_tm.pipeline.set_execution_hook(
+            build_model_execution_hook(
+                lambda: getattr(app.state, "model_dispatcher", None)
+            )
+        )
+        logger.info("[Bootstrap] 批次1分段执行钩子已接入真实模型调度")
+
     logger.info("[Bootstrap] 量化核心与发散引擎装配完成")
 
 

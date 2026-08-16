@@ -175,8 +175,16 @@ class SegmentPipeline:
             return False
         return size <= self._max_db_payload_bytes
 
-    def _parse_json_robust(self, text: str) -> dict[str, Any]:
-        """使用 dirtyjson 或等效正则进行 JSON 宽松解析"""
+    @staticmethod
+    def _parse_json_robust(text: str) -> dict[str, Any]:
+        """使用 dirtyjson 或等效正则进行 JSON 宽松解析
+
+        阶段1修复：本方法原为实例方法（首个参数 self），而
+        _normalize_hook_result 以类方法形式调用并只传一个参数，
+        导致"钩子返回 JSON 字符串"的真实 AI 契约路径自始缺失
+        text 参数而必然解析失败（旧测试钩子均返回二元组，恰好
+        绕过该路径）。改为 staticmethod 恢复契约。
+        """
         import json, re
         try:
             import dirtyjson

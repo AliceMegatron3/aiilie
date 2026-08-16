@@ -110,6 +110,11 @@ class TaskManager:
             config_manager.get("task.max_run_seconds", DEFAULT_MAX_RUN_SECONDS)
         )
 
+    @property
+    def pipeline(self) -> SegmentPipeline:
+        """暴露分段流水线（阶段1：供 bootstrap 在 dispatcher 装配后注入真实执行钩子）。"""
+        return self._pipeline
+
     async def initialize(self) -> None:
         """启动时从数据库恢复未完成的任务（含分段记录与中断现场）。"""
         # P2：恢复非终态任务（PENDING + RUNNING），RUNNING 视为异常中断需重跑。
@@ -193,6 +198,7 @@ class TaskManager:
         segment_strategy: str = "auto",
         model_source: str = "local",
         idempotency_key: str | None = None,
+        project_id: str | None = None,
     ) -> CommandTask:
         """
         提交新任务。
@@ -255,6 +261,13 @@ class TaskManager:
         # 分段拆解
         segments = self._splitter.split(task)
         task.segments = segments
+
+        # 阶段1：项目绑定注入首段尾巴，随尾巴接力传递到执行钩子，
+        # 供 dispatcher 加载项目绑定书库的卡片上下文（世界观上下文进入主链路）
+        if project_id and segments:
+            first_tail = dict(getattr(segments[0], "tail_context", None) or {})
+            first_tail["project_id"] = project_id
+            segments[0].tail_context = first_tail
 
         # 写入数据库
         await self._db.insert_task(task)
