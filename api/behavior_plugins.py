@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from api.deps import verify_token
 from models.behavior_plugin import PluginSource, PluginStatus
+from services.author_signals import join_author_retention, load_author_signals, record_author_signal
 from services.behavior_plugins import (
     aggregate_stats,
     behavior_plugin_registry,
@@ -49,7 +50,27 @@ async def list_behavior_plugins():
 
 @router.get("/plugins/behavior/stats")
 async def behavior_plugin_stats():
-    return {"stats": aggregate_stats(load_run_records())}
+    runs = load_run_records()
+    stats = aggregate_stats(runs)
+    # P2后续:作者信号接棒——每插件作者保留率(真信号,粗粒度归属)
+    retention = join_author_retention(runs, load_author_signals())
+    for pid, entry in retention.items():
+        stats.setdefault(pid, {"plugin_id": pid, **entry})["author_retention"] = entry["author_retention"]
+        stats[pid]["signal_tasks"] = entry["tasks"]
+    return {"stats": stats}
+
+
+class AuthorSignalRequest(BaseModel):
+    task_id: str = Field(min_length=1)
+    generated_text: str = ""
+    final_text: str = ""
+
+
+@router.post("/plugins/behavior/author-signal")
+async def author_signal(req: AuthorSignalRequest):
+    """作者确认/改稿后登记真实信号:生成终稿 vs 作者定稿 → 保留率。"""
+    record = record_author_signal(req.task_id, req.generated_text, req.final_text)
+    return {"signal": record}
 
 
 class PluginStatusRequest(BaseModel):

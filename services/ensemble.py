@@ -299,13 +299,28 @@ class EnsembleService:
     async def render_ensemble_context(
         self, project_id: str, onstage_ids: list[str], event_id: str | None = None,
     ) -> str:
-        """在场声纹+当前关系+派系图(生成注入块;空则返回空串)。"""
+        """在场声纹+当前关系+派系图(生成注入块;空则返回空串)。
+
+        关系行优先显示角色名(名字比ID对模型更可用),无名回退ID。
+        """
         parts: list[str] = []
+        name_map: dict[str, str] = {}
+        try:
+            for t in await self.get_tracks(project_id):
+                if t.name:
+                    name_map[t.character_id] = t.name
+        except Exception:
+            pass
+
+        def display(cid: str) -> str:
+            name = name_map.get(cid)
+            return f"{name}({cid})" if name else cid
+
         for cid in onstage_ids:
             voice = await self.get_voice(project_id, cid)
             if voice:
                 parts.append(
-                    f"- {voice.name or cid}:声纹={voice.speech_habits or '—'};"
+                    f"- {voice.name or display(cid)}:声纹={voice.speech_habits or '—'};"
                     f"决策={voice.decision_style or '—'}"
                 )
         if parts:
@@ -316,14 +331,14 @@ class EnsembleService:
         for r in rels:
             a, b = r["pair"].split("|")
             if a in onstage and b in onstage:
-                rel_lines.append(f"- {a}×{b}:{r['label']}({r['current']:+d})")
+                rel_lines.append(f"- {display(a)}×{display(b)}:{r['label']}({r['current']:+d})")
         if rel_lines:
             parts.append("【在场关系当前态】\n" + "\n".join(rel_lines))
         factions = await self.get_factions(project_id, active_only=True)
         if event_id:
             factions = [f for f in factions if f.event_id == event_id]
         if factions:
-            fl = [f"- {f.name}:{','.join(f.members)}" for f in factions]
+            fl = [f"- {f.name}:{','.join(display(m) for m in f.members)}" for f in factions]
             parts.append("【事件派系图(临时对位,事件终了回摆)】\n" + "\n".join(fl))
         return ("\n\n".join(parts) + "\n\n") if parts else ""
 
@@ -338,3 +353,18 @@ class EnsembleService:
                     f"且含负面动词——建议作者核对其轨道动机(当前需求:{'/'.join(track.needs) or '未明'})"
                 )
         return None
+
+
+def infer_onstage_ids(tracks: list[LifeTrack], text: str) -> list[str]:
+    """确定性在场角色识别:角色名/ID出现在文本(命令+拍纲)即在场。
+
+    能用算的不用LLM:匹配源为生活轨道卡的 name/character_id,
+    别名可后续经轨道卡扩展字段补充。
+    """
+    text = text or ""
+    onstage: list[str] = []
+    for t in tracks:
+        candidates = [n for n in (t.name, t.character_id) if n]
+        if any(n in text for n in candidates):
+            onstage.append(t.character_id)
+    return onstage

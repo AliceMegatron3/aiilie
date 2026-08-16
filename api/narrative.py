@@ -152,3 +152,54 @@ async def audit_threads(
         "overdue": len(overdue),
         "items": [i.model_dump() for i in items],
     }
+
+
+# ── P6:弧线模式端点(前端治理面板消费) ─────────────────────────
+
+@router.get("/narrative/arcs")
+async def list_arcs():
+    """弧线模式清单(六出厂弧线+量化候选)。"""
+    from services.arc_patterns import BUILTIN_ARC_PATTERNS
+
+    return {
+        "arcs": [
+            {
+                "pattern_id": p.pattern_id, "name": p.name, "description": p.description,
+                "stages": [s.model_dump() for s in p.stages], "status": p.status,
+                "variation_slots": p.variation_slots,
+            }
+            for p in BUILTIN_ARC_PATTERNS.values()
+        ]
+    }
+
+
+class ApplyArcRequest(BaseModel):
+    pattern_id: str
+    n_chapters: int = Field(ge=1, le=500)
+    start_number: int = Field(default=1, ge=1)
+
+
+@router.post("/narrative/projects/{project_id}/volumes/{volume_id}/apply-arc")
+async def apply_arc(
+    project_id: str, volume_id: str, req: ApplyArcRequest,
+    svc: NarrativeStructureService = Depends(_service),
+):
+    """套用弧线到卷:派生整卷章级预算+弧线绑定(已有章不覆盖拍纲)。"""
+    from services.arc_patterns import apply_arc_to_volume, get_arc_pattern
+
+    pattern = get_arc_pattern(req.pattern_id)
+    if pattern is None:
+        raise HTTPException(status_code=404, detail="弧线模式不存在")
+    await svc.initialize()
+    saved = await apply_arc_to_volume(
+        svc, project_id, volume_id, pattern,
+        n_chapters=req.n_chapters, start_number=req.start_number,
+    )
+    return {
+        "applied": len(saved), "pattern": pattern.name,
+        "chapters": [
+            {"chapter_number": c.chapter_number, "arc_stage": c.arc_stage,
+             "budget": c.budget.model_dump() if c.budget else None}
+            for c in saved
+        ],
+    }

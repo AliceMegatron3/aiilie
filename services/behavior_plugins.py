@@ -319,6 +319,12 @@ async def apply_polish_passes(
     if not text or dispatcher is None:
         return draft or "", records
     reg = registry or behavior_plugin_registry
+    from core.config_manager import config_manager
+
+    # 运维调优(实测中转站晚高峰60s超时):编辑通行对模型档位要求低于
+    # 创作本体,默认rapid档+独立更短超时,均可经config覆盖
+    editor_mode = str(config_manager.get("behavior_plugins.editor_mode", "rapid") or "rapid")
+    pass_timeout = float(config_manager.get("behavior_plugins.request_timeout", 45) or 45)
     for spec in reg.active_for(ctx):
         rec = BehaviorPluginRunRecord(
             plugin_id=spec.plugin_id, task_id=ctx.task_id,
@@ -327,7 +333,12 @@ async def apply_polish_passes(
         t0 = time.time()
         try:
             prompt = _render_pass_prompt(spec, text)
-            output = await dispatcher.dispatch(prompt, override_mode="think")
+            import asyncio
+
+            output = await asyncio.wait_for(
+                dispatcher.dispatch(prompt, override_mode=editor_mode),
+                timeout=pass_timeout,
+            )
             ok, reason = spec.acceptance.check(text, str(output or ""))
             rec.duration_ms = int((time.time() - t0) * 1000)
             rec.triggered = True

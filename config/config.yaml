@@ -91,6 +91,9 @@ reflection:
   schedule_cron: "0 2 * * *"
 
 feature:
+  # ── P1(专精能手施工图):行为插件编辑通行总开关 ──
+  # 关闭后 supervisor 精修链不再执行打磨通行(回退纯专家链)
+  behavior_plugins_enable: true
   # ── 第十部分：多智能体小说创作 总开关（总控）──
   # 关闭后多智能体自学习全部停止，多Agent功能不受影响（回退原创作链路）
   novel_multi_agent_enable: false
@@ -115,6 +118,14 @@ emotion_engine:
   max_task_timeout_sec: 120
   max_task_total_token: 8192
   recent_frame_keep_count: 3
+
+# ── P1/P2(专精能手施工图):行为插件(编辑通行)档位与超时 ──
+# 运维口径:打磨对模型档位要求低于创作本体;实测中转站晚高峰
+# 60s 超时率高,编辑通行默认走 rapid 档 + 独立更短超时,
+# 超时/失败自动回退通行前文本(保底不伤稿)。editor_mode 可选 rapid/think。
+behavior_plugins:
+  editor_mode: rapid
+  request_timeout: 45
 
 # ── 补丁1：时间轴系统配置 ──
 timeline:

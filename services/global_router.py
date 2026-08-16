@@ -145,15 +145,53 @@ class GlobalRouter:
             nsvc = NarrativeStructureService(self._db)
             await nsvc.initialize()
             brief = await nsvc.render_generation_brief(req.project_id, chapter_number)
-            if brief:
+            # P7接线:拍纲文本参与在场角色识别(命令+拍纲合并匹配)
+            beat_text = ""
+            for c in await nsvc.get_chapters(req.project_id):
+                if c.chapter_number == chapter_number:
+                    beat_text = "\n".join(b.text for b in c.beats)
+                    break
+            ensemble_block = await self._build_ensemble_block(
+                req.project_id, cmd_text + "\n" + beat_text
+            )
+            combined = (brief or "") + ensemble_block
+            if combined:
                 logger.info(
-                    "[GlobalRouter] 已注入叙事结构层生成简报(第%d章, +%d 字符)",
-                    chapter_number, len(brief),
+                    "[GlobalRouter] 已注入结构/群像上下文(第%d章, +%d 字符)",
+                    chapter_number, len(combined),
                 )
-                return brief + cmd_text
+                return combined + cmd_text
         except Exception as exc:
             logger.warning("[GlobalRouter] 生成简报注入失败(降级原始指令): %s", exc)
         return cmd_text
+
+    async def _build_ensemble_block(self, project_id: str, context_text: str) -> str:
+        """P7接线:确定性在场识别→群像上下文块(声纹+关系+派系)。失败静默降级。"""
+        if self._db is None or not project_id:
+            return ""
+        try:
+            if getattr(self, "_ensemble_service", None) is None:
+                from services.ensemble import EnsembleService
+
+                self._ensemble_service = EnsembleService(self._db)
+                await self._ensemble_service.initialize()
+            from services.ensemble import infer_onstage_ids
+
+            tracks = await self._ensemble_service.get_tracks(project_id)
+            if not tracks:
+                return ""
+            onstage = infer_onstage_ids(tracks, context_text)
+            if not onstage:
+                return ""
+            block = await self._ensemble_service.render_ensemble_context(project_id, onstage)
+            if block:
+                logger.info(
+                    "[GlobalRouter] 群像上下文注入: 在场%d人", len(onstage)
+                )
+            return block
+        except Exception as exc:
+            logger.warning("[GlobalRouter] 群像上下文构建失败(跳过): %s", exc)
+            return ""
         history.append(now)
         self._command_history[cmd_text] = history
 
@@ -486,7 +524,8 @@ class GlobalRouter:
 
         # 阶段3集成B(讨论稿第七章):命令携带 chapter_number 时,注入叙事结构层
         # 生成简报(已确认拍纲+节奏软目标+伏笔硬约束)——结构资产进入创作链路。
-        # 任何失败仅告警降级,不影响原有创作路径。
+        # P7接线:项目有群像轨道时,确定性识别在场角色并注入群像上下文
+        # (声纹+关系当前态+派系图)。任何失败仅告警降级,不影响原有创作路径。
         cmd_text = await self._inject_narrative_brief(req, cmd_text)
 
         # a) 先获取批次4反馈沉淀的动态优化规则

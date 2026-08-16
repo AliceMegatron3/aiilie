@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 from api.behavior_plugins import router as behavior_plugins_router
+from api.ensemble import router as ensemble_router
 from api.experience import router as experience_router
 from api.library import router as library_router
 from api.knowledge import router as knowledge_router
@@ -26,6 +27,7 @@ from api.workspace import router as workspace_router
 api_router = APIRouter(prefix="/api/v1")
 
 api_router.include_router(behavior_plugins_router)
+api_router.include_router(ensemble_router)
 api_router.include_router(experience_router)
 api_router.include_router(library_router)
 api_router.include_router(knowledge_router)

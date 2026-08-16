@@ -150,6 +150,33 @@ export interface APIResponse<T> {
 
 export const api = {
   // ==========================================
+  // 治理面板(P1/P2/P6/P7):插件治理·弧线套用·群像回摆
+  // ==========================================
+  governance: {
+    /** 行为插件清单(规格+聚合统计) */
+    plugins: () => apiClient.get('/plugins/behavior'),
+    /** 插件统计(含作者保留率真信号) */
+    pluginStats: () => apiClient.get('/plugins/behavior/stats'),
+    /** 治理流转(ACTIVE/GRAY/RETIRED/CANDIDATE) */
+    setPluginStatus: (plugin_id: string, status: string, gray_percent = 0) =>
+      apiClient.post(`/plugins/behavior/${plugin_id}/status`, { status, gray_percent }),
+    /** 作者信号登记(确认/改稿后回流,生成终稿vs作者定稿) */
+    authorSignal: (task_id: string, generated_text: string, final_text: string) =>
+      apiClient.post('/plugins/behavior/author-signal', { task_id, generated_text, final_text }),
+    /** 弧线模式清单 */
+    arcs: () => apiClient.get('/narrative/arcs'),
+    /** 套用弧线到卷(派生整卷章级预算) */
+    applyArc: (project_id: string, volume_id: string, payload: { pattern_id: string; n_chapters: number; start_number?: number }) =>
+      apiClient.post(`/narrative/projects/${project_id}/volumes/${volume_id}/apply-arc`, payload),
+    /** 群像关系账本 */
+    ensembleRelations: (project_id: string) =>
+      apiClient.get(`/ensemble/projects/${project_id}/relationships`),
+    /** 事件清算(按余额深浅回摆) */
+    ensembleCloseEvent: (project_id: string, event_id: string) =>
+      apiClient.post(`/ensemble/projects/${project_id}/events/${event_id}/close`),
+  },
+
+  // ==========================================
   // 批次1：任务引擎 (Task Engine)
   // ==========================================
   tasks: {

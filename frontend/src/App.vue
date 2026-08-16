@@ -30,6 +30,11 @@
 
     <!-- 统一 Toast 容器 -->
     <ToastContainer />
+    <button
+      class="fixed bottom-4 right-4 z-40 rounded-full border border-[#2a2a30] bg-[#18181b]/90 px-3 py-2 text-xs text-zinc-300 shadow-lg hover:text-zinc-100"
+      @click="governanceOpen = true"
+    >治理</button>
+    <GovernancePanel :open="governanceOpen" @close="governanceOpen = false" />
     
     <!-- 潜意识流展示悬浮窗 -->
     <SubconsciousStream />
@@ -44,12 +49,14 @@ import CenterPanel from './components/CenterPanel.vue'
 import RightPanel from './components/RightPanel.vue'
 import CreativeCopilot from './components/CreativeCopilot.vue'
 import ToastContainer from './components/ui/ToastContainer.vue'
+import GovernancePanel from './components/GovernancePanel.vue'
 import SubconsciousStream from './components/SubconsciousStream.vue'
 import { useAppStore } from './stores/useAppStore'
 import { startHealthPolling, stopHealthPolling } from './api'
 
 const appStore = useAppStore()
-const rightPanelWidth = ref(380) // 默认宽度
+const rightPanelWidth = ref(380)
+const governanceOpen = ref(false) // 默认宽度
 const isResizing = ref(false)
 
 const startResize = (e) => {
