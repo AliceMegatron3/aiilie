@@ -7,14 +7,29 @@
 
 /**
  * 是否运行在 Electron 桌面容器中。
- * 注意：Electron 渲染进程注入 process.versions，浏览器环境无此对象。
+ * 优先用 preload 注入的 desktopAPI(批次3,可靠);否则回退 process.versions 检测。
  */
 export function isElectron() {
+  if (typeof window !== 'undefined' && (window as any).desktopAPI?.isDesktop === true) {
+    return true
+  }
   return typeof window !== 'undefined' &&
-    typeof window.process === 'object' &&
-    window.process !== null &&
-    typeof window.process.versions === 'object' &&
-    Boolean(window.process.versions.electron)
+    typeof (window as any).process === 'object' &&
+    (window as any).process !== null &&
+    typeof (window as any).process.versions === 'object' &&
+    Boolean((window as any).process.versions.electron)
+}
+
+/**
+ * 打开系统文件夹选择器(Electron 环境);返回所选目录绝对路径,取消返回 null。
+ * Web/浏览器环境无此能力,返回 null——调用方应退化为手动输入路径。
+ */
+export async function selectFolder(): Promise<string | null> {
+  const api = (window as any).desktopAPI
+  if (api && typeof api.selectFolder === 'function') {
+    return await api.selectFolder()
+  }
+  return null
 }
 
 /**

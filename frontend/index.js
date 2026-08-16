@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
@@ -10,6 +10,9 @@ const __dirname = path.dirname(__filename);
 
 log.initialize();
 
+// 批次3:预加载脚本路径(向渲染层暴露受控的文件夹选择能力)
+const preloadPath = path.join(__dirname, 'preload.cjs');
+
 function createWindow() {
   const mainWindow = new BrowserWindow({
     width: 1280,
@@ -18,13 +21,27 @@ function createWindow() {
       // 安全加固：关闭 Node 集成并开启上下文隔离，防止 XSS 升级为 RCE
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: true
+      sandbox: true,
+      preload: preloadPath
     }
   });
 
   // Load the built vite app
   mainWindow.loadFile(path.join(__dirname, 'dist', 'index.html'));
 }
+
+// 批次3:文件夹选择 IPC——渲染层通过 contextBridge 调 dialog.showOpenDialog
+// 仅返回所选目录绝对路径,不提供任意文件系统访问能力。
+ipcMain.handle('select-folder', async () => {
+  const result = await dialog.showOpenDialog({
+    title: '选择文件夹',
+    properties: ['openDirectory'],
+  });
+  if (result.canceled || !result.filePaths.length) {
+    return null;
+  }
+  return result.filePaths[0];
+});
 
 app.whenReady().then(() => {
   log.info("Electron app ready, starting backend process");

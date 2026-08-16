@@ -11,7 +11,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends, HTTPException
 
 from api.deps import get_project_manager, verify_token
@@ -56,6 +56,54 @@ async def get_workspace_info() -> dict[str, Any]:
 
 class ImportRequest(BaseModel):
     folder_path: str
+
+
+class BrowseRequest(BaseModel):
+    path: str = Field(default="", description="工作区内的相对或绝对路径,空=工作区根")
+
+
+@router.post("/browse", summary="浏览工作区目录(只读,限工作区内)")
+async def browse_workspace(req: BrowseRequest) -> dict[str, Any]:
+    """返回目录下的子目录与文件清单(名称/类型/大小/修改时间)。
+
+    批次3:只读浏览,写权限仍限定在工作区内;越界路径拒绝。
+    """
+    import os
+    import stat as stat_mod
+
+    workspace_root = get_workspace_dir().resolve()
+    # 空路径或相对路径都拼到工作区根,再做越界校验
+    raw = (req.path or "").strip()
+    base = Path(raw) if raw else workspace_root
+    if not base.is_absolute():
+        base = workspace_root / raw
+    try:
+        target = _ensure_within_workspace(str(base))
+    except PathTraversalError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    if not target.exists():
+        raise HTTPException(status_code=404, detail="路径不存在")
+    if not target.is_dir():
+        raise HTTPException(status_code=400, detail="目标不是目录")
+
+    entries = []
+    for child in sorted(target.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())):
+        try:
+            st = child.stat()
+        except OSError:
+            continue
+        entries.append({
+            "name": child.name,
+            "type": "dir" if child.is_dir() else "file",
+            "size": st.st_size if not child.is_dir() else None,
+            "modified": st.st_mtime,
+        })
+    return ok({
+        "path": str(target),
+        "relative": str(target.relative_to(workspace_root)) if target != workspace_root else "",
+        "entries": entries,
+    })
 
 
 @router.post("/import", summary="导入本地文件夹为子项目")

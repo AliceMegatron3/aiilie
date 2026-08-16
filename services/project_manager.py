@@ -268,25 +268,57 @@ class ProjectManager:
         await self.update_project(project)
         logger.info("子项目已重命名为: %s", new_name)
 
+    def project_workspace_path(self, project_id: str) -> Path:
+        """返回项目在工作区内的物理目录(批次3,写权限限定工作区)。"""
+        from core.path_resolver import safe_join
+
+        return safe_join(self.projects_dir, project_id)
+
     async def import_local_project_folder(self, folder_path: str) -> AuthorProject:
         """
         本地导入功能：
         输入一个本地绝对路径，将其内容导入并创建为一个子项目。
         递归扫描其中的 txt, md, docx 文件并注册为 ProjectDoc。
+
+        批次3:补充文件数量(≤500)与总大小(≤200MB)上限,对标 library 上传限制。
         """
         import os
         from pathlib import Path
         import uuid
-        
+        from core.config_manager import config_manager
+
         source_dir = Path(folder_path)
         if not source_dir.exists() or not source_dir.is_dir():
             raise ValueError(f"无效的本地文件夹路径: {folder_path}")
-            
+
+        supported_exts = {".txt", ".md", ".docx"}
+        max_files = config_manager.get_int("workspace.import_max_files", 500)
+        max_bytes = config_manager.get_int("workspace.import_max_mb", 200) * 1024 * 1024
+
+        # 先扫描统计,超限即拒绝(不做一半再失败)
+        candidates: list[Path] = []
+        total_bytes = 0
+        for root, _, files in os.walk(source_dir):
+            for file_name in files:
+                file_path = Path(root) / file_name
+                if file_path.suffix.lower() in supported_exts:
+                    candidates.append(file_path)
+                    try:
+                        total_bytes += file_path.stat().st_size
+                    except OSError:
+                        pass
+        if len(candidates) > max_files:
+            raise ValueError(f"导入文件数量 {len(candidates)} 超过上限 {max_files}")
+        if total_bytes > max_bytes:
+            raise ValueError(
+                f"导入总大小 {total_bytes / 1024 / 1024:.1f}MB 超过上限 {max_bytes / 1024 / 1024:.0f}MB"
+            )
+
         # 创建新项目
         project_name = source_dir.name
         project_id = f"proj_{uuid.uuid4().hex[:8]}"
         now = datetime.now(timezone.utc).isoformat()
-        
+
         new_project = AuthorProject(
             project_id=project_id,
             project_name=project_name,
@@ -296,39 +328,34 @@ class ProjectManager:
             created_at=now,
             updated_at=now
         )
-        
+
         await self.create_project(new_project)
-        
-        # 扫描文件并添加文档
-        supported_exts = {".txt", ".md", ".docx"}
-        for root, _, files in os.walk(source_dir):
-            for file_name in files:
-                file_path = Path(root) / file_name
-                if file_path.suffix.lower() in supported_exts:
-                    try:
-                        # 暂时只做纯文本读取，docx后续可通过 ParserFactory 增强
-                        if file_path.suffix.lower() in {".txt", ".md"}:
-                            content = await asyncio.to_thread(
-                                file_path.read_text, encoding="utf-8", errors="ignore"
-                            )
-                        else:
-                            content = f"[暂不支持读取 docx 原始内容，需配置 Parser，路径: {file_path}]"
-                            
-                        doc_id = f"doc_{uuid.uuid4().hex[:8]}"
-                        new_doc = ProjectDoc(
-                            doc_id=doc_id,
-                            project_id=project_id,
-                            doc_name=file_path.stem,
-                            raw_content=content,
-                            status="DRAFT",
-                            created_at=now,
-                            updated_at=now
-                        )
-                        await self.add_document(new_doc)
-                    except Exception as e:
-                        logger.warning("导入本地文件失败: %s - %s", file_path, e)
-                        
-        logger.info("成功从本地导入子项目: %s, 共导入文件数见日志", project_name)
+
+        for file_path in candidates:
+            try:
+                # 暂时只做纯文本读取，docx后续可通过 ParserFactory 增强
+                if file_path.suffix.lower() in {".txt", ".md"}:
+                    content = await asyncio.to_thread(
+                        file_path.read_text, encoding="utf-8", errors="ignore"
+                    )
+                else:
+                    content = f"[暂不支持读取 docx 原始内容，需配置 Parser，路径: {file_path}]"
+
+                doc_id = f"doc_{uuid.uuid4().hex[:8]}"
+                new_doc = ProjectDoc(
+                    doc_id=doc_id,
+                    project_id=project_id,
+                    doc_name=file_path.stem,
+                    raw_content=content,
+                    status="DRAFT",
+                    created_at=now,
+                    updated_at=now
+                )
+                await self.add_document(new_doc)
+            except Exception as e:
+                logger.warning("导入本地文件失败: %s - %s", file_path, e)
+
+        logger.info("成功从本地导入子项目: %s, 共导入文件数 %d", project_name, len(candidates))
         return new_project
 
     # ==========================================

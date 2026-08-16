@@ -150,6 +150,18 @@ export interface APIResponse<T> {
 
 export const api = {
   // ==========================================
+  // 工作区(批次3:只读浏览,写权限限工作区内)
+  // ==========================================
+  workspace: {
+    /** 工作区根与AI索引目录信息 */
+    info: () => apiClient.get('/workspace/info'),
+    /** 浏览工作区目录(空 path=根);返回子目录与文件清单 */
+    browse: (path: string = '') => apiClient.post('/workspace/browse', { path }),
+    /** 导入工作区内文件夹为子项目 */
+    import: (folder_path: string) => apiClient.post('/workspace/import', { folder_path }),
+  },
+
+  // ==========================================
   // 治理面板(P1/P2/P6/P7):插件治理·弧线套用·群像回摆
   // ==========================================
   governance: {
