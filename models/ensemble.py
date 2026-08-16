@@ -41,6 +41,14 @@ class LifeTrack(BaseModel):
         default_factory=list,
         description="别名/字/尊称(如 玄德/孟德),用于在场识别匹配",
     )
+    chapter_key: int = Field(
+        default=1, ge=1,
+        description="章号主时间键(可排序,区间查询用);与叙事结构层/伏笔账本/时间线索引对齐",
+    )
+    story_time: str = Field(
+        default="",
+        description="故事内时间展示注解(如'初平元年冬'),不作排序键",
+    )
     position: str = Field(default="", description="当前所处位置/阵营/处境")
     livelihood: str = Field(default="", description="营生(靠什么过活)")
     attachments: list[str] = Field(default_factory=list, description="牵挂(人/物/念)")

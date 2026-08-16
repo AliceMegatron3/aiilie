@@ -5,7 +5,7 @@ api/ensemble.py — 群像层 API(P7,前端治理面板消费)
 - GET  /ensemble/projects/{pid}/tracks         生活轨道清单
 - POST /ensemble/projects/{pid}/events/{eid}/close  事件清算→回摆提醒
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from api.deps import get_db, verify_token
@@ -51,12 +51,36 @@ async def close_event(project_id: str, event_id: str, svc: EnsembleService = Dep
     return {"reminders": reminders, "count": len(reminders)}
 
 
+@router.get("/ensemble/projects/{project_id}/tracks/{character_id}/history")
+async def get_track_history(
+    project_id: str, character_id: str, svc: EnsembleService = Depends(_service)
+):
+    """单角色全历史快照(按章号升序),展示角色时间线状态。"""
+    history = await svc.get_track_history(project_id, character_id)
+    return {"character_id": character_id, "history": [t.model_dump() for t in history]}
+
+
+@router.get("/ensemble/projects/{project_id}/tracks/{character_id}/at-chapter")
+async def get_track_at_chapter(
+    project_id: str, character_id: str, chapter: int = Query(ge=1),
+    svc: EnsembleService = Depends(_service),
+):
+    """该角色在指定章号的状态快照(≤chapter最近;未来章兜底最新)。"""
+    track = await svc.get_track_at_chapter(project_id, character_id, chapter)
+    if track is None:
+        raise HTTPException(status_code=404, detail="该角色在该章号无轨道快照")
+    return {"chapter": chapter, "track": track.model_dump()}
+
+
 # ── 录入端点(债4:让群像数据可冷启动) ─────────────────────────
 
 class TrackUpsertRequest(BaseModel):
     character_id: str = Field(min_length=1)
     name: str = ""
     aliases: list[str] = Field(default_factory=list)
+    # 批次2:章号为主时间键,故事内时间为展示注解
+    chapter_key: int = Field(default=1, ge=1, description="章号主时间键")
+    story_time: str = Field(default="", description="叙事内时间展示注解")
     position: str = ""
     livelihood: str = ""
     attachments: list[str] = Field(default_factory=list)

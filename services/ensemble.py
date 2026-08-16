@@ -47,15 +47,8 @@ class EnsembleService:
         self.db = db
 
     async def initialize(self) -> None:
-        await self.db.conn.execute("""
-            CREATE TABLE IF NOT EXISTS ensemble_life_tracks (
-                character_id TEXT NOT NULL,
-                project_id TEXT NOT NULL,
-                data TEXT NOT NULL,
-                updated_chapter INTEGER NOT NULL DEFAULT 1,
-                PRIMARY KEY (project_id, character_id)
-            )
-        """)
+        # 批次2:轨道表迁移为三元主键(project_id, character_id, chapter_key),
+        # 支持按章号归档角色历史状态。按 SQLite 迁移惯例:备份→建新→迁移→删旧。
         await self.db.conn.execute("""
             CREATE TABLE IF NOT EXISTS ensemble_relationships (
                 entry_id TEXT PRIMARY KEY,
@@ -89,29 +82,129 @@ class EnsembleService:
                 PRIMARY KEY (project_id, character_id)
             )
         """)
+        await self._migrate_life_tracks()
         await self.db.conn.commit()
-        logger.info("[Ensemble] 群像层四表初始化完成")
+        logger.info("[Ensemble] 群像层四表初始化完成(轨道表已用三元主键)")
+
+    async def _migrate_life_tracks(self) -> None:
+        """把二元主键轨道表迁移为三元主键(chapter_key);幂等。"""
+        cur = await self.db.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='ensemble_life_tracks'"
+        )
+        if await cur.fetchone() is None:
+            # 全新库/首次:直接建新结构
+            await self.db.conn.execute("""
+                CREATE TABLE ensemble_life_tracks (
+                    character_id TEXT NOT NULL,
+                    project_id TEXT NOT NULL,
+                    data TEXT NOT NULL,
+                    chapter_key INTEGER NOT NULL DEFAULT 1,
+                    PRIMARY KEY (project_id, character_id, chapter_key)
+                )
+            """)
+            return
+        cols = await self.db.conn.execute("PRAGMA table_info(ensemble_life_tracks)")
+        col_names = [c[1] for c in await cols.fetchall()]
+        if "chapter_key" in col_names:
+            return  # 已是新结构
+        # 旧结构迁移:备份→建新→复制→删旧
+        await self.db.conn.execute(
+            "ALTER TABLE ensemble_life_tracks RENAME TO ensemble_life_tracks_old"
+        )
+        await self.db.conn.execute("""
+            CREATE TABLE ensemble_life_tracks (
+                character_id TEXT NOT NULL,
+                project_id TEXT NOT NULL,
+                data TEXT NOT NULL,
+                chapter_key INTEGER NOT NULL DEFAULT 1,
+                PRIMARY KEY (project_id, character_id, chapter_key)
+            )
+        """)
+        await self.db.conn.execute("""
+            INSERT OR IGNORE INTO ensemble_life_tracks (character_id, project_id, data, chapter_key)
+            SELECT character_id, project_id, data, MAX(COALESCE(updated_chapter, 1), 1)
+            FROM ensemble_life_tracks_old
+            GROUP BY project_id, character_id
+        """)
+        await self.db.conn.execute("DROP TABLE ensemble_life_tracks_old")
 
     # ── 生活轨道 ──────────────────────────────────────────────
 
     async def upsert_track(self, track: LifeTrack) -> LifeTrack:
+        """按 (project_id, character_id, chapter_key) 三元主键 upsert。
+
+        不覆盖其他章号的历史快照——同一角色不同章各存一条,
+        get_track_at_chapter 据此做区间检索。
+        """
+        key = max(1, track.chapter_key or track.updated_chapter)
         await self.db.conn.execute(
-            """INSERT INTO ensemble_life_tracks (character_id, project_id, data, updated_chapter)
+            """INSERT INTO ensemble_life_tracks (character_id, project_id, data, chapter_key)
                VALUES (?, ?, ?, ?)
-               ON CONFLICT(project_id, character_id) DO UPDATE SET
-                   data=excluded.data, updated_chapter=excluded.updated_chapter""",
-            (track.character_id, track.project_id, track.model_dump_json(), track.updated_chapter),
+               ON CONFLICT(project_id, character_id, chapter_key) DO UPDATE SET
+                   data=excluded.data""",
+            (track.character_id, track.project_id, track.model_dump_json(), key),
         )
         await self.db.conn.commit()
         return track
 
-    async def get_tracks(self, project_id: str) -> list[LifeTrack]:
+    async def get_tracks(self, project_id: str, at_chapter: int | None = None) -> list[LifeTrack]:
+        """轨道清单;at_chapter 给定时返回各角色「该章号及之前最近」的快照。"""
+        if at_chapter is None:
+            cursor = await self.db.conn.execute(
+                "SELECT data, chapter_key FROM ensemble_life_tracks WHERE project_id = ? ORDER BY chapter_key",
+                (project_id,),
+            )
+            rows = await cursor.fetchall()
+            return [self._load_track(r[0], r[1]) for r in rows]
+        # 每角色取 chapter_key <= at_chapter 的最大一条
         cursor = await self.db.conn.execute(
-            "SELECT data FROM ensemble_life_tracks WHERE project_id = ? ORDER BY updated_chapter",
-            (project_id,),
+            """SELECT t.data, t.chapter_key FROM ensemble_life_tracks t
+               JOIN (SELECT character_id, MAX(chapter_key) AS mx
+                     FROM ensemble_life_tracks
+                     WHERE project_id = ? AND chapter_key <= ?
+                     GROUP BY character_id) sub
+               ON t.character_id = sub.character_id AND t.chapter_key = sub.mx
+               WHERE t.project_id = ?""",
+            (project_id, at_chapter, project_id),
         )
         rows = await cursor.fetchall()
-        return [LifeTrack.model_validate_json(r[0]) for r in rows]
+        return [self._load_track(r[0], r[1]) for r in rows]
+
+    async def get_track_at_chapter(
+        self, project_id: str, character_id: str, chapter: int
+    ) -> LifeTrack | None:
+        """单角色在指定章号(≤chapter)最近的状态快照;未来章号兜底到最新。"""
+        cursor = await self.db.conn.execute(
+            """SELECT data, chapter_key FROM ensemble_life_tracks
+               WHERE project_id = ? AND character_id = ? AND chapter_key <= ?
+               ORDER BY chapter_key DESC LIMIT 1""",
+            (project_id, character_id, chapter),
+        )
+        row = await cursor.fetchone()
+        return self._load_track(row[0], row[1]) if row else None
+
+    async def get_track_history(self, project_id: str, character_id: str) -> list[LifeTrack]:
+        """单角色全历史快照(按章号升序)。"""
+        cursor = await self.db.conn.execute(
+            """SELECT data, chapter_key FROM ensemble_life_tracks
+               WHERE project_id = ? AND character_id = ?
+               ORDER BY chapter_key ASC""",
+            (project_id, character_id),
+        )
+        rows = await cursor.fetchall()
+        return [self._load_track(r[0], r[1]) for r in rows]
+
+    @staticmethod
+    def _load_track(data_json: str, chapter_key: int) -> LifeTrack:
+        """反序列化轨道快照,并以 SQL 的 chapter_key 列覆盖载荷值。
+
+        兼容存量旧数据:早期载荷在 chapter_key 字段引入前序列化,
+        反序列化后 chapter_key 会回落默认值 1;SQL 列才是权威。
+        """
+        track = LifeTrack.model_validate_json(data_json)
+        track.chapter_key = int(chapter_key or 1)
+        track.updated_chapter = max(track.updated_chapter, int(chapter_key or 1))
+        return track
 
     # ── 关系账本 ──────────────────────────────────────────────
 

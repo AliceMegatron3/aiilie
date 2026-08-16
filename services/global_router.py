@@ -152,7 +152,8 @@ class GlobalRouter:
                     beat_text = "\n".join(b.text for b in c.beats)
                     break
             ensemble_block = await self._build_ensemble_block(
-                req.project_id, cmd_text + "\n" + beat_text
+                req.project_id, cmd_text + "\n" + beat_text,
+                at_chapter=chapter_number,
             )
             combined = (brief or "") + ensemble_block
             if combined:
@@ -165,8 +166,14 @@ class GlobalRouter:
             logger.warning("[GlobalRouter] 生成简报注入失败(降级原始指令): %s", exc)
         return cmd_text
 
-    async def _build_ensemble_block(self, project_id: str, context_text: str) -> str:
-        """P7接线:确定性在场识别→群像上下文块(声纹+关系+派系)。失败静默降级。"""
+    async def _build_ensemble_block(
+        self, project_id: str, context_text: str, at_chapter: int | None = None
+    ) -> str:
+        """P7接线:确定性在场识别→群像上下文块(声纹+关系+派系)。失败静默降级。
+
+        批次2:at_chapter 给定时,按该章号的角色状态快照做在场识别与
+        上下文注入——角色时间线状态锁定到创作正进行的章节,而非最新态。
+        """
         if self._db is None or not project_id:
             return ""
         try:
@@ -177,7 +184,7 @@ class GlobalRouter:
                 await self._ensemble_service.initialize()
             from services.ensemble import infer_onstage_ids
 
-            tracks = await self._ensemble_service.get_tracks(project_id)
+            tracks = await self._ensemble_service.get_tracks(project_id, at_chapter=at_chapter)
             if not tracks:
                 return ""
             onstage = infer_onstage_ids(tracks, context_text)
@@ -186,7 +193,9 @@ class GlobalRouter:
             block = await self._ensemble_service.render_ensemble_context(project_id, onstage)
             if block:
                 logger.info(
-                    "[GlobalRouter] 群像上下文注入: 在场%d人", len(onstage)
+                    "[GlobalRouter] 群像上下文注入: 在场%d人%s",
+                    len(onstage),
+                    f"(第{at_chapter}章状态)" if at_chapter else "",
                 )
             return block
         except Exception as exc:
