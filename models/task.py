@@ -124,6 +124,10 @@ class BasePipelineTask(BaseModel):
     completed_at: datetime | None = None
     error_message: str | None = None
     retry_count: int = Field(default=0)
+    idempotency_key: str | None = Field(
+        default=None,
+        description="客户端幂等键；相同键只创建一个任务",
+    )
     
     # 为了兼容部分旧代码使用 dict 取值的习惯，增加配置
     model_config = {"extra": "allow"}
@@ -180,6 +184,12 @@ class TaskSubmitRequest(BaseModel):
     priority: int = Field(default=4, ge=1, le=7)
     segment_strategy: str = Field(default="auto")
     model_source: ModelSource = Field(default=ModelSource.LOCAL)
+    idempotency_key: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=200,
+        description="客户端幂等键；相同键重复提交返回原任务",
+    )
 
     @field_validator("segment_strategy", mode="before")
     @classmethod

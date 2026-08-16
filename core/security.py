@@ -13,11 +13,13 @@ core/security.py — 鉴权与云端门控
 from __future__ import annotations
 
 import base64
+import binascii
 import hashlib
 import hmac
 import logging
 import secrets
 import time
+import os
 from typing import Callable
 
 from fastapi import Depends, HTTPException, Request
@@ -59,7 +61,8 @@ def _get_secret() -> str:
     """
     global _SESSION_FALLBACK_SECRET
 
-    secret = config_manager.get("security.auth_secret") or ""
+    # 容器/生产环境通过环境变量注入，优先级必须与健康检查保持一致。
+    secret = os.environ.get("AIILIE_SECURITY_AUTH_SECRET") or config_manager.get("security.auth_secret") or ""
     if secret:
         return str(secret)
 
@@ -121,13 +124,17 @@ def verify_api_token(token: str) -> str | None:
             logger.warning("[Security] 令牌已过期")
             return None
         return identity
-    except (ValueError, UnicodeDecodeError, KeyError):
+    except (ValueError, UnicodeDecodeError, KeyError, binascii.Error, OverflowError):
         return None
 
 
 def create_auth_dependency() -> Callable:
     """构造 FastAPI 鉴权依赖（闭包持有配置快照，避免每次请求读配置）。"""
-    require_auth = bool(config_manager.get("security.require_auth", False))
+    raw_require_auth = os.environ.get("AIILIE_SECURITY_REQUIRE_AUTH")
+    if raw_require_auth is None:
+        require_auth = bool(config_manager.get("security.require_auth", False))
+    else:
+        require_auth = raw_require_auth.strip().lower() in {"1", "true", "yes", "on"}
 
     async def authenticate(request: Request) -> str:
         auth_header = request.headers.get("Authorization", "")
@@ -181,6 +188,9 @@ def generate_secret_if_missing() -> str:
     落盘文件路径：`get_app_data_dir()/auth_secret`，内容为 url-safe base64 随机串。
     返回最终生效的密钥（已有配置则原样返回，不覆盖）。
     """
+    environment_secret = os.environ.get("AIILIE_SECURITY_AUTH_SECRET") or ""
+    if environment_secret:
+        return environment_secret
     existing = config_manager.get("security.auth_secret") or ""
     if existing:
         return str(existing)

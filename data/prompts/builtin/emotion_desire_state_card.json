@@ -1,0 +1,10 @@
+{
+  "template_id": "emotion_desire_state_card",
+  "name": "Emotion and Desire State Card",
+  "category": "EmotionEngine",
+  "version": "1.0.0",
+  "template_text": "你是角色情感与欲望量化智能体。请分析当前场景中的临时状态，不给角色贴永久标签。每个等级必须有原文证据；不能因为单个情绪词就判定最高等级；必须区分表层情绪、深层或被压抑情绪、核心欲望、口头目标和实际行为目标。证据不足时使用 unknown、0 或降低置信度。\n\n等级：0 无证据；1 极弱背景；2 轻微；3 明显但可控；4 已影响判断；5 强烈并影响选择；6 压过其他因素；7 失控并支配场景。\n\n角色：{{ character_profile }}\n上一状态：{{ previous_state }}\n当前场景：\n{{ scene_text }}\n情感本体：{{ emotion_ontology }}\n欲望本体：{{ desire_ontology }}\n相关资产：{{ related_assets }}\n\n请输出主情绪、次要情绪、潜在情绪、主欲望、次要欲望、目标、阻力、资源、行为倾向、选择代价、触发原因、情绪和欲望 delta、关系变化、原文证据、置信度及是否需要作者确认。证据必须含 quote、char_start、char_end 和 reason。\n\n只输出合法 JSON：{\"asset_type\":\"DataCard\",\"metric_type\":\"emotion_desire_state\",\"character_id\":\"\",\"scene_id\":\"\",\"value\":{},\"delta\":{},\"causes\":[],\"evidence\":[],\"confidence\":0.0,\"status\":\"DRAFT\",\"needs_author_review\":false}",
+  "variables": ["character_profile", "previous_state", "scene_text", "emotion_ontology", "desire_ontology", "related_assets"],
+  "tags": ["emotion", "desire", "data_card", "character", "evidence", "json"],
+  "is_builtin": true
+}

@@ -22,6 +22,30 @@ def current_utc_time() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+class SourceAnchor(BaseModel):
+    """A stable, human-auditable location inside a source document."""
+
+    source_document_id: str = ""
+    source_path: str = ""
+    heading: str = ""
+    paragraph: int | None = None
+    line_start: int | None = None
+    line_end: int | None = None
+    quote: str = ""
+
+
+class CardRelation(BaseModel):
+    """A typed edge between two cards."""
+
+    relation_id: str = Field(default_factory=generate_uuid)
+    source_card_id: str = ""
+    target_card_id: str
+    relation_type: str = "related_to"
+    weight: float = 1.0
+    note: str = ""
+    status: str = "active"
+
+
 class BaseCard(BaseModel):
     """所有卡片的基类"""
     card_id: str = Field(default_factory=generate_uuid, description="卡片唯一标识")
@@ -33,6 +57,24 @@ class BaseCard(BaseModel):
     
     # 四象限分析用打分 (默认值 0.5 为中等)
     entropy_score: float = Field(default=0.5, description="冷门度/信息熵，越高代表越罕见。")
+
+    # The following fields are optional in spirit and have defaults so cards
+    # created by earlier versions remain valid when read from cold storage.
+    library_id: str = Field(default="", description="所属资料库标识")
+    knowledge_type: str = Field(default="FACT", description="语义类型：FACT/RULE/ENTITY/STATE/TEMPLATE/RELATION")
+    book_type_ids: list[str] = Field(default_factory=list, description="可复用的书籍类型/题材标识")
+    domain: str = Field(default="", description="知识域，如 history、worldview、style")
+    scope_level: str = Field(default="book", description="作用域：global/library/book/project/session")
+    status: str = Field(default="draft", description="审核状态：draft/reviewed/approved/rejected/archived")
+    evidence_level: str = Field(default="unknown", description="证据等级：A/B/C/D/unknown")
+    rule_strength: str = Field(default="none", description="规则强度：none/advisory/hard")
+    source_document_id: str = Field(default="", description="稳定的来源文档标识")
+    source_anchor: SourceAnchor | None = Field(default=None, description="来源段落锚点")
+    valid_time_start: str | None = Field(default=None, description="约束生效时间起点")
+    valid_time_end: str | None = Field(default=None, description="约束生效时间终点")
+    valid_places: list[str] = Field(default_factory=list, description="约束适用地点")
+    related_card_ids: list[str] = Field(default_factory=list, description="关联卡片标识")
+    relations: list[CardRelation] = Field(default_factory=list, description="卡片关系边")
     utility_score: float = Field(default=0.5, description="有用度/核心度，越高代表越核心。")
 
 

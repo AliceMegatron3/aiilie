@@ -6,6 +6,7 @@ tests/test_security.py — 安全模块单元测试
 from __future__ import annotations
 
 import time
+from unittest.mock import patch
 
 import pytest
 
@@ -27,6 +28,7 @@ async def test_invalid_token_rejected():
     assert verify_api_token("garbage") is None
     assert verify_api_token("a.b.c") is None
     assert verify_api_token("") is None
+    assert verify_api_token("!!!!.!!!!") is None
 
 
 async def test_tampered_token_rejected():
@@ -59,3 +61,10 @@ async def test_cloud_gate_disabled_without_key(monkeypatch):
         {"enable_switch": True, "api_key": "sk-xxx"},
     )
     assert is_cloud_enabled() is True
+
+
+async def test_environment_secret_override(monkeypatch):
+    monkeypatch.setenv("AIILIE_SECURITY_AUTH_SECRET", "environment-secret")
+    with patch("core.security.config_manager.get", return_value="config-secret"):
+        token = generate_api_token("environment-client")
+        assert verify_api_token(token) == "environment-client"

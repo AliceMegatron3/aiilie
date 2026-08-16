@@ -1,0 +1,1205 @@
+{
+  "manifest_version": "1.0",
+  "library_id": "historical_materials",
+  "library_name": "历史资料",
+  "root_path": "历史资料",
+  "root_source_document_id": "historical_materials:453d9cd64c2b9cae",
+  "generated_at": "2026-08-15T16:32:52.433766+00:00",
+  "entries": [
+    {
+      "source_document_id": "historical_materials:453d9cd64c2b9cae",
+      "library_id": "historical_materials",
+      "relative_path": "00-索引与调用.md",
+      "title": "《乱世双璧》历史资料库 · 索引与调用（总入口）",
+      "directory": "",
+      "index_type": "root",
+      "parent_source_document_id": null,
+      "children_source_document_ids": [
+        "historical_materials:8f5caf2771611462",
+        "historical_materials:5775bce86b423c92",
+        "historical_materials:7bbcce94fbf5a11f",
+        "historical_materials:d06f7a97ded14f55",
+        "historical_materials:4ecde2f961b05b0d",
+        "historical_materials:426895c5b6d8a833",
+        "historical_materials:c0c63a83cb088ea5",
+        "historical_materials:9e6a4a486339be67",
+        "historical_materials:e61ac8ac0f18c795",
+        "historical_materials:f3f879d1f02c6843",
+        "historical_materials:5ca502aac80a098c"
+      ],
+      "domains": [],
+      "keywords": [
+        "索引与调用",
+        "md"
+      ],
+      "size_bytes": 12007,
+      "modified_at": 1786805823.6391718
+    },
+    {
+      "source_document_id": "historical_materials:8f5caf2771611462",
+      "library_id": "historical_materials",
+      "relative_path": "01-天时·灾荒与疫病.md",
+      "title": "《乱世双璧》历史资料库 · 分卷01：天时——灾荒与疫病",
+      "directory": "",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:453d9cd64c2b9cae",
+      "children_source_document_ids": [],
+      "domains": [
+        "time",
+        "pressure"
+      ],
+      "keywords": [
+        "天时",
+        "灾荒与疫病",
+        "md"
+      ],
+      "size_bytes": 8373,
+      "modified_at": 1785689272.399884
+    },
+    {
+      "source_document_id": "historical_materials:5775bce86b423c92",
+      "library_id": "historical_materials",
+      "relative_path": "02-地利·地理与区划.md",
+      "title": "《乱世双璧》历史资料库 · 分卷02：地利——地理与行政区划",
+      "directory": "",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:453d9cd64c2b9cae",
+      "children_source_document_ids": [],
+      "domains": [
+        "geography"
+      ],
+      "keywords": [
+        "地利",
+        "地理与区划",
+        "md"
+      ],
+      "size_bytes": 7599,
+      "modified_at": 1785689677.7457094
+    },
+    {
+      "source_document_id": "historical_materials:7bbcce94fbf5a11f",
+      "library_id": "historical_materials",
+      "relative_path": "03-人和·阶层与社会.md",
+      "title": "《乱世双璧》历史资料库 · 分卷03：人和——阶层与社会压力",
+      "directory": "",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:453d9cd64c2b9cae",
+      "children_source_document_ids": [],
+      "domains": [
+        "society"
+      ],
+      "keywords": [
+        "人和",
+        "阶层与社会",
+        "md"
+      ],
+      "size_bytes": 7602,
+      "modified_at": 1785689972.0349755
+    },
+    {
+      "source_document_id": "historical_materials:d06f7a97ded14f55",
+      "library_id": "historical_materials",
+      "relative_path": "04-制度·数字速查.md",
+      "title": "《乱世双璧》历史资料库 · 分卷04：制度——数字速查",
+      "directory": "",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:453d9cd64c2b9cae",
+      "children_source_document_ids": [],
+      "domains": [
+        "institution"
+      ],
+      "keywords": [
+        "制度",
+        "数字速查",
+        "md"
+      ],
+      "size_bytes": 5240,
+      "modified_at": 1785690950.7249193
+    },
+    {
+      "source_document_id": "historical_materials:4ecde2f961b05b0d",
+      "library_id": "historical_materials",
+      "relative_path": "05-科技树·东汉技术.md",
+      "title": "《乱世双璧》历史资料库 · 分卷05：科技树——东汉技术条件",
+      "directory": "",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:453d9cd64c2b9cae",
+      "children_source_document_ids": [],
+      "domains": [
+        "technology"
+      ],
+      "keywords": [
+        "科技树",
+        "东汉技术",
+        "md"
+      ],
+      "size_bytes": 7505,
+      "modified_at": 1785691709.2429385
+    },
+    {
+      "source_document_id": "historical_materials:426895c5b6d8a833",
+      "library_id": "historical_materials",
+      "relative_path": "06-时代编年·灵帝建宁熹平168-177.md",
+      "title": "《乱世双璧》历史资料库 · 分卷06：时代编年① 汉灵帝·建宁—熹平（168—177）",
+      "directory": "",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:453d9cd64c2b9cae",
+      "children_source_document_ids": [],
+      "domains": [
+        "time"
+      ],
+      "keywords": [
+        "时代编年",
+        "灵帝建宁熹平",
+        "md"
+      ],
+      "size_bytes": 2946,
+      "modified_at": 1785755677.0180087
+    },
+    {
+      "source_document_id": "historical_materials:c0c63a83cb088ea5",
+      "library_id": "historical_materials",
+      "relative_path": "07-时代编年·灵帝光和中平178-189.md",
+      "title": "《乱世双璧》历史资料库 · 分卷07：时代编年② 汉灵帝·光和—中平（178—189）",
+      "directory": "",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:453d9cd64c2b9cae",
+      "children_source_document_ids": [],
+      "domains": [
+        "time"
+      ],
+      "keywords": [
+        "时代编年",
+        "灵帝光和中平",
+        "md"
+      ],
+      "size_bytes": 9418,
+      "modified_at": 1785755782.3209844
+    },
+    {
+      "source_document_id": "historical_materials:9e6a4a486339be67",
+      "library_id": "historical_materials",
+      "relative_path": "08-时代编年·献帝初平兴平189-196.md",
+      "title": "《乱世双璧》历史资料库 · 分卷08：时代编年③ 汉献帝·初平—兴平（189—196）",
+      "directory": "",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:453d9cd64c2b9cae",
+      "children_source_document_ids": [],
+      "domains": [
+        "time"
+      ],
+      "keywords": [
+        "时代编年",
+        "献帝初平兴平",
+        "md"
+      ],
+      "size_bytes": 9646,
+      "modified_at": 1785755976.6286836
+    },
+    {
+      "source_document_id": "historical_materials:e61ac8ac0f18c795",
+      "library_id": "historical_materials",
+      "relative_path": "09-疫病×朝廷反应×祭祀 专项年表.md",
+      "title": "《乱世双璧》历史资料库 · 分卷09：疫病×朝廷反应×祭祀 专项年表（桓灵献）",
+      "directory": "",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:453d9cd64c2b9cae",
+      "children_source_document_ids": [],
+      "domains": [
+        "time"
+      ],
+      "keywords": [
+        "疫病",
+        "朝廷反应",
+        "祭祀",
+        "专项年表",
+        "md"
+      ],
+      "size_bytes": 4608,
+      "modified_at": 1785756001.0873876
+    },
+    {
+      "source_document_id": "historical_materials:f3f879d1f02c6843",
+      "library_id": "historical_materials",
+      "relative_path": "10-《三国志》正史核心资料·汉末三国小说调用版.md",
+      "title": "《乱世双璧》历史资料库 · 分卷10：《三国志》正史核心资料",
+      "directory": "",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:453d9cd64c2b9cae",
+      "children_source_document_ids": [],
+      "domains": [
+        "evidence"
+      ],
+      "keywords": [
+        "三国志",
+        "正史核心资料",
+        "汉末三国小说调用版",
+        "md"
+      ],
+      "size_bytes": 36898,
+      "modified_at": 1786795518.3294356
+    },
+    {
+      "source_document_id": "historical_materials:5ca502aac80a098c",
+      "library_id": "historical_materials",
+      "relative_path": "三国类似研究/00-研究索引与证据规范.md",
+      "title": "三国类似研究 · 研究索引与证据规范",
+      "directory": "三国类似研究",
+      "index_type": "branch",
+      "parent_source_document_id": "historical_materials:453d9cd64c2b9cae",
+      "children_source_document_ids": [
+        "historical_materials:7ba9a0860b807e4f",
+        "historical_materials:496d29b5aa386efc",
+        "historical_materials:574be5936a67c3df",
+        "historical_materials:79b712a53891d25b",
+        "historical_materials:7bffa67ca4d2518c",
+        "historical_materials:79da9f403bb35a71",
+        "historical_materials:c39aa620dbd658de",
+        "historical_materials:645a5b135070a1fd",
+        "historical_materials:5ce45346ed2b8f3b",
+        "historical_materials:4c7717e329592fd7",
+        "historical_materials:bad87d9d580c0bb2"
+      ],
+      "domains": [
+        "evidence"
+      ],
+      "keywords": [
+        "三国类似研究",
+        "研究索引与证据规范",
+        "md"
+      ],
+      "size_bytes": 9483,
+      "modified_at": 1786805818.5436754
+    },
+    {
+      "source_document_id": "historical_materials:7ba9a0860b807e4f",
+      "library_id": "historical_materials",
+      "relative_path": "三国类似研究/01-东汉历史主线·时间事件地点天时地利.md",
+      "title": "三国类似研究 · 东汉历史主线",
+      "directory": "三国类似研究",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:5ca502aac80a098c",
+      "children_source_document_ids": [],
+      "domains": [
+        "time",
+        "geography",
+        "evidence"
+      ],
+      "keywords": [
+        "三国类似研究",
+        "东汉历史主线",
+        "时间事件地点天时地利",
+        "md"
+      ],
+      "size_bytes": 17213,
+      "modified_at": 1786796920.6356804
+    },
+    {
+      "source_document_id": "historical_materials:496d29b5aa386efc",
+      "library_id": "historical_materials",
+      "relative_path": "三国类似研究/02-天时地利人和·东汉系统图谱.md",
+      "title": "三国类似研究 · 天时地利人和：东汉系统图谱",
+      "directory": "三国类似研究",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:5ca502aac80a098c",
+      "children_source_document_ids": [],
+      "domains": [
+        "geography",
+        "society",
+        "evidence"
+      ],
+      "keywords": [
+        "三国类似研究",
+        "天时地利人和",
+        "东汉系统图谱",
+        "md"
+      ],
+      "size_bytes": 11879,
+      "modified_at": 1786797012.953123
+    },
+    {
+      "source_document_id": "historical_materials:574be5936a67c3df",
+      "library_id": "historical_materials",
+      "relative_path": "三国类似研究/03-唯物历史判断·东汉崩解机制.md",
+      "title": "三国类似研究 · 唯物历史判断：东汉崩解机制",
+      "directory": "三国类似研究",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:5ca502aac80a098c",
+      "children_source_document_ids": [],
+      "domains": [
+        "evidence"
+      ],
+      "keywords": [
+        "三国类似研究",
+        "唯物历史判断",
+        "东汉崩解机制",
+        "md"
+      ],
+      "size_bytes": 12070,
+      "modified_at": 1786797104.7672768
+    },
+    {
+      "source_document_id": "historical_materials:79b712a53891d25b",
+      "library_id": "historical_materials",
+      "relative_path": "三国类似研究/04-网络阴谋论与史料辨析.md",
+      "title": "三国类似研究 · 网络阴谋论与史料辨析",
+      "directory": "三国类似研究",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:5ca502aac80a098c",
+      "children_source_document_ids": [],
+      "domains": [
+        "evidence"
+      ],
+      "keywords": [
+        "三国类似研究",
+        "网络阴谋论与史料辨析",
+        "md"
+      ],
+      "size_bytes": 15194,
+      "modified_at": 1786797223.1015396
+    },
+    {
+      "source_document_id": "historical_materials:7bffa67ca4d2518c",
+      "library_id": "historical_materials",
+      "relative_path": "三国类似研究/05-族群与“种类竞争”假说·比较模型.md",
+      "title": "三国类似研究 · 族群与“种类竞争”假说：比较模型",
+      "directory": "三国类似研究",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:5ca502aac80a098c",
+      "children_source_document_ids": [],
+      "domains": [
+        "society",
+        "evidence"
+      ],
+      "keywords": [
+        "三国类似研究",
+        "族群与",
+        "种类竞争",
+        "假说",
+        "比较模型",
+        "md"
+      ],
+      "size_bytes": 10427,
+      "modified_at": 1786797300.15802
+    },
+    {
+      "source_document_id": "historical_materials:79da9f403bb35a71",
+      "library_id": "historical_materials",
+      "relative_path": "三国类似研究/06-历史主线小说调用表·场景与冲突.md",
+      "title": "三国类似研究 · 历史主线小说调用表",
+      "directory": "三国类似研究",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:5ca502aac80a098c",
+      "children_source_document_ids": [],
+      "domains": [
+        "evidence",
+        "style"
+      ],
+      "keywords": [
+        "三国类似研究",
+        "历史主线小说调用表",
+        "场景与冲突",
+        "md"
+      ],
+      "size_bytes": 10381,
+      "modified_at": 1786797380.137025
+    },
+    {
+      "source_document_id": "historical_materials:c39aa620dbd658de",
+      "library_id": "historical_materials",
+      "relative_path": "三国类似研究/07-网上检索入口与参考书目.md",
+      "title": "三国类似研究 · 网上检索入口与参考书目",
+      "directory": "三国类似研究",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:5ca502aac80a098c",
+      "children_source_document_ids": [],
+      "domains": [
+        "evidence"
+      ],
+      "keywords": [
+        "三国类似研究",
+        "网上检索入口与参考书目",
+        "md"
+      ],
+      "size_bytes": 8922,
+      "modified_at": 1786797450.1107132
+    },
+    {
+      "source_document_id": "historical_materials:645a5b135070a1fd",
+      "library_id": "historical_materials",
+      "relative_path": "三国类似研究/情绪资源模板研究/00-索引与使用规范.md",
+      "title": "情绪资源模板研究 · 索引与使用规范",
+      "directory": "三国类似研究/情绪资源模板研究",
+      "index_type": "branch",
+      "parent_source_document_id": "historical_materials:5ca502aac80a098c",
+      "children_source_document_ids": [
+        "historical_materials:0973cddfb2a87a9a",
+        "historical_materials:770db43ac2a0da9e",
+        "historical_materials:31c032bd5eb7106c",
+        "historical_materials:9d52ee058cca619b",
+        "historical_materials:652d9cb2663d31b7",
+        "historical_materials:481177a8c95aa11a",
+        "historical_materials:d7f8affddee1038e"
+      ],
+      "domains": [
+        "evidence",
+        "emotion"
+      ],
+      "keywords": [
+        "三国类似研究",
+        "情绪资源模板研究",
+        "索引与使用规范",
+        "md"
+      ],
+      "size_bytes": 3067,
+      "modified_at": 1786804103.4985645
+    },
+    {
+      "source_document_id": "historical_materials:0973cddfb2a87a9a",
+      "library_id": "historical_materials",
+      "relative_path": "三国类似研究/情绪资源模板研究/01-七情六欲量化框架与等级说明.md",
+      "title": "七情六欲量化框架与等级说明",
+      "directory": "三国类似研究/情绪资源模板研究",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:645a5b135070a1fd",
+      "children_source_document_ids": [],
+      "domains": [
+        "evidence",
+        "emotion"
+      ],
+      "keywords": [
+        "三国类似研究",
+        "情绪资源模板研究",
+        "七情六欲量化框架与等级说明",
+        "md"
+      ],
+      "size_bytes": 14019,
+      "modified_at": 1786802832.2546163
+    },
+    {
+      "source_document_id": "historical_materials:770db43ac2a0da9e",
+      "library_id": "historical_materials",
+      "relative_path": "三国类似研究/情绪资源模板研究/02-底层民众·自耕农与流民人设模板.md",
+      "title": "底层民众 · 自耕农与流民人设模板",
+      "directory": "三国类似研究/情绪资源模板研究",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:645a5b135070a1fd",
+      "children_source_document_ids": [],
+      "domains": [
+        "evidence",
+        "emotion"
+      ],
+      "keywords": [
+        "三国类似研究",
+        "情绪资源模板研究",
+        "底层民众",
+        "自耕农与流民人设模板",
+        "md"
+      ],
+      "size_bytes": 11871,
+      "modified_at": 1786802985.260607
+    },
+    {
+      "source_document_id": "historical_materials:31c032bd5eb7106c",
+      "library_id": "historical_materials",
+      "relative_path": "三国类似研究/情绪资源模板研究/03-中间层·佃农部曲商人工匠人设模板.md",
+      "title": "中间层 · 佃农部曲商人工匠人设模板",
+      "directory": "三国类似研究/情绪资源模板研究",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:645a5b135070a1fd",
+      "children_source_document_ids": [],
+      "domains": [
+        "evidence",
+        "emotion"
+      ],
+      "keywords": [
+        "三国类似研究",
+        "情绪资源模板研究",
+        "中间层",
+        "佃农部曲商人工匠人设模板",
+        "md"
+      ],
+      "size_bytes": 15398,
+      "modified_at": 1786803155.9225857
+    },
+    {
+      "source_document_id": "historical_materials:9d52ee058cca619b",
+      "library_id": "historical_materials",
+      "relative_path": "三国类似研究/情绪资源模板研究/04-上层·豪强士族官吏人设模板.md",
+      "title": "上层 · 豪强士族官吏人设模板",
+      "directory": "三国类似研究/情绪资源模板研究",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:645a5b135070a1fd",
+      "children_source_document_ids": [],
+      "domains": [
+        "evidence",
+        "emotion"
+      ],
+      "keywords": [
+        "三国类似研究",
+        "情绪资源模板研究",
+        "上层",
+        "豪强士族官吏人设模板",
+        "md"
+      ],
+      "size_bytes": 14930,
+      "modified_at": 1786803312.2303424
+    },
+    {
+      "source_document_id": "historical_materials:652d9cb2663d31b7",
+      "library_id": "historical_materials",
+      "relative_path": "三国类似研究/情绪资源模板研究/05-特殊群体·方士信众军士妇孺人设模板.md",
+      "title": "特殊群体 · 方士信众军士妇孺人设模板",
+      "directory": "三国类似研究/情绪资源模板研究",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:645a5b135070a1fd",
+      "children_source_document_ids": [],
+      "domains": [
+        "evidence",
+        "emotion"
+      ],
+      "keywords": [
+        "三国类似研究",
+        "情绪资源模板研究",
+        "特殊群体",
+        "方士信众军士妇孺人设模板",
+        "md"
+      ],
+      "size_bytes": 19433,
+      "modified_at": 1786803515.8493018
+    },
+    {
+      "source_document_id": "historical_materials:481177a8c95aa11a",
+      "library_id": "historical_materials",
+      "relative_path": "三国类似研究/情绪资源模板研究/06-历史变迁对各阶层情绪的动态影响.md",
+      "title": "历史变迁对各阶层情绪的动态影响",
+      "directory": "三国类似研究/情绪资源模板研究",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:645a5b135070a1fd",
+      "children_source_document_ids": [],
+      "domains": [
+        "society",
+        "evidence",
+        "emotion"
+      ],
+      "keywords": [
+        "三国类似研究",
+        "情绪资源模板研究",
+        "历史变迁对各阶层情绪的动态影响",
+        "md"
+      ],
+      "size_bytes": 12834,
+      "modified_at": 1786803644.767748
+    },
+    {
+      "source_document_id": "historical_materials:d7f8affddee1038e",
+      "library_id": "historical_materials",
+      "relative_path": "三国类似研究/情绪资源模板研究/07-自建人设操作流程与核验表.md",
+      "title": "自建人设操作流程与核验表",
+      "directory": "三国类似研究/情绪资源模板研究",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:645a5b135070a1fd",
+      "children_source_document_ids": [],
+      "domains": [
+        "evidence",
+        "emotion"
+      ],
+      "keywords": [
+        "三国类似研究",
+        "情绪资源模板研究",
+        "自建人设操作流程与核验表",
+        "md"
+      ],
+      "size_bytes": 8014,
+      "modified_at": 1786804002.8588703
+    },
+    {
+      "source_document_id": "historical_materials:5ce45346ed2b8f3b",
+      "library_id": "historical_materials",
+      "relative_path": "三国类似研究/更细化物质研究/00-细化研究索引与使用规范.md",
+      "title": "三国类似研究 · 更细化物质研究",
+      "directory": "三国类似研究/更细化物质研究",
+      "index_type": "branch",
+      "parent_source_document_id": "historical_materials:5ca502aac80a098c",
+      "children_source_document_ids": [
+        "historical_materials:8eebf6e9c5d3429f",
+        "historical_materials:0b6356071e566bab",
+        "historical_materials:d6726cdc45021f94",
+        "historical_materials:0274df020cb17410",
+        "historical_materials:7f660e2df395b27e",
+        "historical_materials:002a54820fabfe0f",
+        "historical_materials:7f3a13d6f7889170",
+        "historical_materials:801048f873ae95eb",
+        "historical_materials:6b76274afdb43d97",
+        "historical_materials:61f2b5c841f4a914",
+        "historical_materials:0f461e6b42c2dc33"
+      ],
+      "domains": [
+        "technology",
+        "evidence"
+      ],
+      "keywords": [
+        "三国类似研究",
+        "更细化物质研究",
+        "细化研究索引与使用规范",
+        "md"
+      ],
+      "size_bytes": 6523,
+      "modified_at": 1786799412.7971015
+    },
+    {
+      "source_document_id": "historical_materials:8eebf6e9c5d3429f",
+      "library_id": "historical_materials",
+      "relative_path": "三国类似研究/更细化物质研究/01-利益结构与社会身份.md",
+      "title": "更细化物质研究 · 利益结构与社会身份",
+      "directory": "三国类似研究/更细化物质研究",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:5ce45346ed2b8f3b",
+      "children_source_document_ids": [],
+      "domains": [
+        "society",
+        "technology",
+        "evidence"
+      ],
+      "keywords": [
+        "三国类似研究",
+        "更细化物质研究",
+        "利益结构与社会身份",
+        "md"
+      ],
+      "size_bytes": 7311,
+      "modified_at": 1786798276.832257
+    },
+    {
+      "source_document_id": "historical_materials:0b6356071e566bab",
+      "library_id": "historical_materials",
+      "relative_path": "三国类似研究/更细化物质研究/02-民间习俗与日常生活.md",
+      "title": "更细化物质研究 · 民间习俗与日常生活",
+      "directory": "三国类似研究/更细化物质研究",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:5ce45346ed2b8f3b",
+      "children_source_document_ids": [],
+      "domains": [
+        "technology",
+        "evidence"
+      ],
+      "keywords": [
+        "三国类似研究",
+        "更细化物质研究",
+        "民间习俗与日常生活",
+        "md"
+      ],
+      "size_bytes": 8562,
+      "modified_at": 1786798350.915229
+    },
+    {
+      "source_document_id": "historical_materials:d6726cdc45021f94",
+      "library_id": "historical_materials",
+      "relative_path": "三国类似研究/更细化物质研究/03-儒家道家法家典故与政治观念.md",
+      "title": "更细化物质研究 · 儒家、道家、法家典故与政治观念",
+      "directory": "三国类似研究/更细化物质研究",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:5ce45346ed2b8f3b",
+      "children_source_document_ids": [],
+      "domains": [
+        "technology",
+        "evidence"
+      ],
+      "keywords": [
+        "三国类似研究",
+        "更细化物质研究",
+        "儒家道家法家典故与政治观念",
+        "md"
+      ],
+      "size_bytes": 9115,
+      "modified_at": 1786798570.5072439
+    },
+    {
+      "source_document_id": "historical_materials:0274df020cb17410",
+      "library_id": "historical_materials",
+      "relative_path": "三国类似研究/更细化物质研究/04-民间教派方术与宗教实践.md",
+      "title": "更细化物质研究 · 民间教派、方术与宗教实践",
+      "directory": "三国类似研究/更细化物质研究",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:5ce45346ed2b8f3b",
+      "children_source_document_ids": [],
+      "domains": [
+        "technology",
+        "evidence"
+      ],
+      "keywords": [
+        "三国类似研究",
+        "更细化物质研究",
+        "民间教派方术与宗教实践",
+        "md"
+      ],
+      "size_bytes": 8290,
+      "modified_at": 1786798636.0685215
+    },
+    {
+      "source_document_id": "historical_materials:7f660e2df395b27e",
+      "library_id": "historical_materials",
+      "relative_path": "三国类似研究/更细化物质研究/05-汉人文字表现与语言用法.md",
+      "title": "更细化物质研究 · 汉人文字表现与语言用法",
+      "directory": "三国类似研究/更细化物质研究",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:5ce45346ed2b8f3b",
+      "children_source_document_ids": [],
+      "domains": [
+        "technology",
+        "evidence"
+      ],
+      "keywords": [
+        "三国类似研究",
+        "更细化物质研究",
+        "汉人文字表现与语言用法",
+        "md"
+      ],
+      "size_bytes": 10564,
+      "modified_at": 1786798732.7916012
+    },
+    {
+      "source_document_id": "historical_materials:002a54820fabfe0f",
+      "library_id": "historical_materials",
+      "relative_path": "三国类似研究/更细化物质研究/06-衣冠服饰与身体装束.md",
+      "title": "更细化物质研究 · 衣冠服饰与身体装束",
+      "directory": "三国类似研究/更细化物质研究",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:5ce45346ed2b8f3b",
+      "children_source_document_ids": [],
+      "domains": [
+        "technology",
+        "evidence"
+      ],
+      "keywords": [
+        "三国类似研究",
+        "更细化物质研究",
+        "衣冠服饰与身体装束",
+        "md"
+      ],
+      "size_bytes": 7745,
+      "modified_at": 1786798797.3741498
+    },
+    {
+      "source_document_id": "historical_materials:7f3a13d6f7889170",
+      "library_id": "historical_materials",
+      "relative_path": "三国类似研究/更细化物质研究/07-饮食居住与家庭器物.md",
+      "title": "更细化物质研究 · 饮食、居住与家庭器物",
+      "directory": "三国类似研究/更细化物质研究",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:5ce45346ed2b8f3b",
+      "children_source_document_ids": [],
+      "domains": [
+        "technology",
+        "evidence"
+      ],
+      "keywords": [
+        "三国类似研究",
+        "更细化物质研究",
+        "饮食居住与家庭器物",
+        "md"
+      ],
+      "size_bytes": 8724,
+      "modified_at": 1786798893.7199059
+    },
+    {
+      "source_document_id": "historical_materials:801048f873ae95eb",
+      "library_id": "historical_materials",
+      "relative_path": "三国类似研究/更细化物质研究/08-手工技术与生产现场.md",
+      "title": "更细化物质研究 · 手工技术与生产现场",
+      "directory": "三国类似研究/更细化物质研究",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:5ce45346ed2b8f3b",
+      "children_source_document_ids": [],
+      "domains": [
+        "technology",
+        "evidence"
+      ],
+      "keywords": [
+        "三国类似研究",
+        "更细化物质研究",
+        "手工技术与生产现场",
+        "md"
+      ],
+      "size_bytes": 10248,
+      "modified_at": 1786798986.619436
+    },
+    {
+      "source_document_id": "historical_materials:6b76274afdb43d97",
+      "library_id": "historical_materials",
+      "relative_path": "三国类似研究/更细化物质研究/09-城市交通市场与货币度量.md",
+      "title": "更细化物质研究 · 城市、交通、市场与货币度量",
+      "directory": "三国类似研究/更细化物质研究",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:5ce45346ed2b8f3b",
+      "children_source_document_ids": [],
+      "domains": [
+        "geography",
+        "institution",
+        "technology",
+        "evidence"
+      ],
+      "keywords": [
+        "三国类似研究",
+        "更细化物质研究",
+        "城市交通市场与货币度量",
+        "md"
+      ],
+      "size_bytes": 9661,
+      "modified_at": 1786799076.083039
+    },
+    {
+      "source_document_id": "historical_materials:61f2b5c841f4a914",
+      "library_id": "historical_materials",
+      "relative_path": "三国类似研究/更细化物质研究/10-医疗卫生时间历法与身体经验.md",
+      "title": "更细化物质研究 · 医疗卫生、时间历法与身体经验",
+      "directory": "三国类似研究/更细化物质研究",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:5ce45346ed2b8f3b",
+      "children_source_document_ids": [],
+      "domains": [
+        "time",
+        "technology",
+        "evidence"
+      ],
+      "keywords": [
+        "三国类似研究",
+        "更细化物质研究",
+        "医疗卫生时间历法与身体经验",
+        "md"
+      ],
+      "size_bytes": 8203,
+      "modified_at": 1786799144.3654609
+    },
+    {
+      "source_document_id": "historical_materials:0f461e6b42c2dc33",
+      "library_id": "historical_materials",
+      "relative_path": "三国类似研究/更细化物质研究/11-物质细节核验表与时代红线.md",
+      "title": "更细化物质研究 · 物质细节核验表与时代红线",
+      "directory": "三国类似研究/更细化物质研究",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:5ce45346ed2b8f3b",
+      "children_source_document_ids": [],
+      "domains": [
+        "time",
+        "technology",
+        "evidence"
+      ],
+      "keywords": [
+        "三国类似研究",
+        "更细化物质研究",
+        "物质细节核验表与时代红线",
+        "md"
+      ],
+      "size_bytes": 7825,
+      "modified_at": 1786799210.0985813
+    },
+    {
+      "source_document_id": "historical_materials:4c7717e329592fd7",
+      "library_id": "historical_materials",
+      "relative_path": "三国类似研究/环境压力测试模板/00-索引与使用规范.md",
+      "title": "环境压力测试模板 · 索引与使用规范",
+      "directory": "三国类似研究/环境压力测试模板",
+      "index_type": "branch",
+      "parent_source_document_id": "historical_materials:5ca502aac80a098c",
+      "children_source_document_ids": [
+        "historical_materials:37b7819cd872051c",
+        "historical_materials:ad1b7b6841e30172",
+        "historical_materials:bb92e110cbe2ba08",
+        "historical_materials:abf597b01a82ef4e",
+        "historical_materials:490ea6be43778584",
+        "historical_materials:d9c256682644585d",
+        "historical_materials:6579e924198b1055",
+        "historical_materials:5a322e4e83ea9047"
+      ],
+      "domains": [
+        "evidence",
+        "pressure"
+      ],
+      "keywords": [
+        "三国类似研究",
+        "环境压力测试模板",
+        "索引与使用规范",
+        "md"
+      ],
+      "size_bytes": 5306,
+      "modified_at": 1786804728.8195934
+    },
+    {
+      "source_document_id": "historical_materials:37b7819cd872051c",
+      "library_id": "historical_materials",
+      "relative_path": "三国类似研究/环境压力测试模板/01-压力测试总框架与四级压力刻度.md",
+      "title": "压力测试总框架与四级压力刻度",
+      "directory": "三国类似研究/环境压力测试模板",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:4c7717e329592fd7",
+      "children_source_document_ids": [],
+      "domains": [
+        "evidence",
+        "pressure"
+      ],
+      "keywords": [
+        "三国类似研究",
+        "环境压力测试模板",
+        "压力测试总框架与四级压力刻度",
+        "md"
+      ],
+      "size_bytes": 7242,
+      "modified_at": 1786804895.128556
+    },
+    {
+      "source_document_id": "historical_materials:ad1b7b6841e30172",
+      "library_id": "historical_materials",
+      "relative_path": "三国类似研究/环境压力测试模板/02-天灾测试·旱蝗水霜与农时崩坏.md",
+      "title": "天灾测试 · 旱蝗水霜与农时崩坏",
+      "directory": "三国类似研究/环境压力测试模板",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:4c7717e329592fd7",
+      "children_source_document_ids": [],
+      "domains": [
+        "evidence",
+        "pressure"
+      ],
+      "keywords": [
+        "三国类似研究",
+        "环境压力测试模板",
+        "天灾测试",
+        "旱蝗水霜与农时崩坏",
+        "md"
+      ],
+      "size_bytes": 8018,
+      "modified_at": 1786804900.1837735
+    },
+    {
+      "source_document_id": "historical_materials:bb92e110cbe2ba08",
+      "library_id": "historical_materials",
+      "relative_path": "三国类似研究/环境压力测试模板/03-缺粮测试·饥荒十二阶梯.md",
+      "title": "缺粮测试 · 饥荒十二阶梯",
+      "directory": "三国类似研究/环境压力测试模板",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:4c7717e329592fd7",
+      "children_source_document_ids": [],
+      "domains": [
+        "evidence",
+        "pressure"
+      ],
+      "keywords": [
+        "三国类似研究",
+        "环境压力测试模板",
+        "缺粮测试",
+        "饥荒十二阶梯",
+        "md"
+      ],
+      "size_bytes": 13089,
+      "modified_at": 1786805070.2965233
+    },
+    {
+      "source_document_id": "historical_materials:abf597b01a82ef4e",
+      "library_id": "historical_materials",
+      "relative_path": "三国类似研究/环境压力测试模板/04-疫病测试·扩散隔离与救护.md",
+      "title": "疫病测试 · 扩散隔离与救护",
+      "directory": "三国类似研究/环境压力测试模板",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:4c7717e329592fd7",
+      "children_source_document_ids": [],
+      "domains": [
+        "time",
+        "evidence",
+        "pressure"
+      ],
+      "keywords": [
+        "三国类似研究",
+        "环境压力测试模板",
+        "疫病测试",
+        "扩散隔离与救护",
+        "md"
+      ],
+      "size_bytes": 10849,
+      "modified_at": 1786805211.7418046
+    },
+    {
+      "source_document_id": "historical_materials:490ea6be43778584",
+      "library_id": "historical_materials",
+      "relative_path": "三国类似研究/环境压力测试模板/05-战争测试·兵祸摊派与溃散.md",
+      "title": "战争测试 · 兵祸摊派与溃散",
+      "directory": "三国类似研究/环境压力测试模板",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:4c7717e329592fd7",
+      "children_source_document_ids": [],
+      "domains": [
+        "evidence",
+        "pressure"
+      ],
+      "keywords": [
+        "三国类似研究",
+        "环境压力测试模板",
+        "战争测试",
+        "兵祸摊派与溃散",
+        "md"
+      ],
+      "size_bytes": 11466,
+      "modified_at": 1786805351.5860746
+    },
+    {
+      "source_document_id": "historical_materials:d9c256682644585d",
+      "library_id": "historical_materials",
+      "relative_path": "三国类似研究/环境压力测试模板/06-逃难测试·路上生存与决策点.md",
+      "title": "逃难测试 · 路上生存与决策点",
+      "directory": "三国类似研究/环境压力测试模板",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:4c7717e329592fd7",
+      "children_source_document_ids": [],
+      "domains": [
+        "evidence",
+        "pressure"
+      ],
+      "keywords": [
+        "三国类似研究",
+        "环境压力测试模板",
+        "逃难测试",
+        "路上生存与决策点",
+        "md"
+      ],
+      "size_bytes": 10543,
+      "modified_at": 1786805465.0542958
+    },
+    {
+      "source_document_id": "historical_materials:6579e924198b1055",
+      "library_id": "historical_materials",
+      "relative_path": "三国类似研究/环境压力测试模板/07-寄居测试·依附生活的层级与磨损.md",
+      "title": "寄居测试 · 依附生活的层级与磨损",
+      "directory": "三国类似研究/环境压力测试模板",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:4c7717e329592fd7",
+      "children_source_document_ids": [],
+      "domains": [
+        "evidence",
+        "pressure"
+      ],
+      "keywords": [
+        "三国类似研究",
+        "环境压力测试模板",
+        "寄居测试",
+        "依附生活的层级与磨损",
+        "md"
+      ],
+      "size_bytes": 11959,
+      "modified_at": 1786805605.6563172
+    },
+    {
+      "source_document_id": "historical_materials:5a322e4e83ea9047",
+      "library_id": "historical_materials",
+      "relative_path": "三国类似研究/环境压力测试模板/08-大选择与小选择·决策树与代价表.md",
+      "title": "大选择与小选择 · 决策树与代价表",
+      "directory": "三国类似研究/环境压力测试模板",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:4c7717e329592fd7",
+      "children_source_document_ids": [],
+      "domains": [
+        "evidence",
+        "pressure"
+      ],
+      "keywords": [
+        "三国类似研究",
+        "环境压力测试模板",
+        "大选择与小选择",
+        "决策树与代价表",
+        "md"
+      ],
+      "size_bytes": 12475,
+      "modified_at": 1786805779.3931358
+    },
+    {
+      "source_document_id": "historical_materials:bad87d9d580c0bb2",
+      "library_id": "historical_materials",
+      "relative_path": "三国类似研究/著作技巧/00-著作技巧索引与引用规范.md",
+      "title": "三国类似研究 · 著作技巧",
+      "directory": "三国类似研究/著作技巧",
+      "index_type": "branch",
+      "parent_source_document_id": "historical_materials:5ca502aac80a098c",
+      "children_source_document_ids": [
+        "historical_materials:918f3bdf5c38cbb3",
+        "historical_materials:1e41ec9a3f5599bc",
+        "historical_materials:945c573348fc4382"
+      ],
+      "domains": [
+        "evidence",
+        "style"
+      ],
+      "keywords": [
+        "三国类似研究",
+        "著作技巧",
+        "著作技巧索引与引用规范",
+        "md"
+      ],
+      "size_bytes": 4460,
+      "modified_at": 1786800568.9906707
+    },
+    {
+      "source_document_id": "historical_materials:918f3bdf5c38cbb3",
+      "library_id": "historical_materials",
+      "relative_path": "三国类似研究/著作技巧/01-古代写景与借景抒情资源.md",
+      "title": "著作技巧 · 古代写景与借景抒情资源",
+      "directory": "三国类似研究/著作技巧",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:bad87d9d580c0bb2",
+      "children_source_document_ids": [],
+      "domains": [
+        "evidence",
+        "style"
+      ],
+      "keywords": [
+        "三国类似研究",
+        "著作技巧",
+        "古代写景与借景抒情资源",
+        "md"
+      ],
+      "size_bytes": 9262,
+      "modified_at": 1786800659.4969938
+    },
+    {
+      "source_document_id": "historical_materials:1e41ec9a3f5599bc",
+      "library_id": "historical_materials",
+      "relative_path": "三国类似研究/著作技巧/02-东汉三国故事的景物化描写.md",
+      "title": "著作技巧 · 东汉三国故事的景物化描写",
+      "directory": "三国类似研究/著作技巧",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:bad87d9d580c0bb2",
+      "children_source_document_ids": [],
+      "domains": [
+        "evidence",
+        "style"
+      ],
+      "keywords": [
+        "三国类似研究",
+        "著作技巧",
+        "东汉三国故事的景物化描写",
+        "md"
+      ],
+      "size_bytes": 10153,
+      "modified_at": 1786800743.1392536
+    },
+    {
+      "source_document_id": "historical_materials:945c573348fc4382",
+      "library_id": "historical_materials",
+      "relative_path": "三国类似研究/著作技巧/03-四大名著借景写情与场景技法.md",
+      "title": "著作技巧 · 四大名著借景写情与场景技法",
+      "directory": "三国类似研究/著作技巧",
+      "index_type": "document",
+      "parent_source_document_id": "historical_materials:bad87d9d580c0bb2",
+      "children_source_document_ids": [],
+      "domains": [
+        "evidence",
+        "style"
+      ],
+      "keywords": [
+        "三国类似研究",
+        "著作技巧",
+        "四大名著借景写情与场景技法",
+        "md"
+      ],
+      "size_bytes": 10726,
+      "modified_at": 1786802264.9007812
+    }
+  ]
+}

@@ -11,11 +11,12 @@ services/reflection_engine.py — 临时文件辅助反思引擎 (Phase 10)
 from __future__ import annotations
 
 import logging
-import asyncio
+import json
 from pathlib import Path
 from typing import Any
 
 from core.temp_manager import temp_manager
+from services.prompt_template_manager import prompt_manager
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,6 @@ logger = logging.getLogger(__name__)
 class ReflectionEngine:
     def __init__(self) -> None:
         # 注入的模型客户端（DeepSeekClient / ModelDispatcher 等具有 generate_completion 的实例）。
-        # 未注入时 execute_final_reflection 自动降级为占位结论。
         self._model_client: Any = None
 
     def set_model_client(self, client: Any) -> None:
@@ -66,34 +66,69 @@ class ReflectionEngine:
 
             if self._model_client is not None:
                 try:
-                    prompt = (
-                        "你是一名资深小说创作反思顾问。请基于以下聚合材料，"
-                        "提炼 3-5 条可执行、可复用的创作优化结论。\n\n"
-                        f"{aggregated[:12000]}"
+                    prompt = prompt_manager.render(
+                        "reflection_learning_governance",
+                        {
+                            "reflection_scope": "project",
+                            "quantization_data": aggregated[:12000],
+                            "character_profiles": "[]",
+                            "logic_cards": "[]",
+                            "generated_content": "[]",
+                            "author_feedback": "[]",
+                            "failure_logs": "[]",
+                            "active_skills": "[]",
+                        },
                     )
                     conclusion = await self._model_client.generate_completion(
-                        prompt, temperature=0.4, max_tokens=1024
+                        prompt, temperature=0.4, max_tokens=1600
                     )
-                    if conclusion and conclusion.strip():
-                        logger.info(f"[ReflectionEngine] 大模型反思完成。")
-                        return conclusion.strip()
+                    parsed = self._parse_json_object(conclusion)
+                    if parsed is not None:
+                        logger.info("[ReflectionEngine] 大模型反思完成并通过 JSON 校验。")
+                        return json.dumps(parsed, ensure_ascii=False)
+                    raise ValueError("反思模型返回为空或非 JSON")
                 except Exception as exc:
                     logger.error(
-                        "[ReflectionEngine] 模型反思调用失败，降级为占位结论: %s", exc
+                        "[ReflectionEngine] 模型反思调用失败，返回待复核结果: %s", exc
                     )
             else:
                 logger.warning(
-                    "[ReflectionEngine] 未注入模型客户端，降级为占位结论（如需真实反思请注入 llm_client）。"
+                    "[ReflectionEngine] 未注入模型客户端，返回待复核结果。"
                 )
 
-            # 降级：保留原有占位结论，保证老调用方不中断
-            final_conclusion = "【反思总结】基于综合材料，应当减少无用的水文字，增加紧凑的动作描写。"
-            logger.info(f"[ReflectionEngine] 思考完成（降级模式）。")
-            return final_conclusion
+            # 降级必须显式标记，不能把模型不可用伪装成有效反思。
+            return json.dumps(
+                {
+                    "reflection_id": f"reflection_{project_id}",
+                    "scope": "project",
+                    "status": "NEEDS_REVIEW",
+                    "observations": [],
+                    "rule_candidates": [],
+                    "skill_candidates": [],
+                    "plugin_proposals": [],
+                    "author_questions": ["模型不可用或返回格式无效，尚未形成可执行反思。"],
+                },
+                ensure_ascii=False,
+            )
 
         finally:
             # 4. 任务结束，精准销毁对应书籍的这一个临时任务空间
             temp_manager.cleanup_workspace(workspace)
+
+    @staticmethod
+    def _parse_json_object(raw: Any) -> dict[str, Any] | None:
+        """解析模型 JSON，兼容 markdown 代码块，但拒绝非对象结果。"""
+        if not isinstance(raw, str) or not raw.strip():
+            return None
+        cleaned = raw.replace("```json", "").replace("```", "").strip()
+        start, end = cleaned.find("{"), cleaned.rfind("}")
+        if start < 0 or end <= start:
+            return None
+        try:
+            value = json.loads(cleaned[start : end + 1])
+        except json.JSONDecodeError:
+            return None
+        return value if isinstance(value, dict) else None
 
 
 # 单例

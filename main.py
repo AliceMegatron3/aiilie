@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import os
+from fastapi import status
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,7 @@ from starlette.responses import JSONResponse
 from core.bootstrap import create_lifespan
 from core.config_manager import config_manager
 from core.exceptions import AppError
+from core.health import liveness_details, readiness_details
 from core.logger import setup_global_logger
 from core.rate_limiter import TokenBucketRateLimiter
 from core.response import fail
@@ -80,6 +82,18 @@ def create_app() -> FastAPI:
     @app.get("/health", tags=["System"])
     async def health() -> dict[str, str]:
         return {"status": "ok", "version": VERSION, "timestamp": datetime.now(timezone.utc).isoformat()}
+
+    @app.get("/health/live", tags=["System"])
+    async def health_live() -> dict[str, str]:
+        """进程存活探针，不依赖数据库、worker 或模型。"""
+        return liveness_details()
+
+    @app.get("/health/ready", tags=["System"])
+    async def health_ready() -> JSONResponse:
+        """服务就绪探针；未完成底座初始化时返回 503。"""
+        details = await readiness_details(app)
+        code = status.HTTP_200_OK if details["status"] == "ready" else status.HTTP_503_SERVICE_UNAVAILABLE
+        return JSONResponse(status_code=code, content=details)
 
     frontend_dir = Path(__file__).resolve().parent / "frontend" / "dist"
     if frontend_dir.is_dir() and (frontend_dir / "index.html").exists():

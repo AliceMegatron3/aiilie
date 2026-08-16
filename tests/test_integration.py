@@ -95,7 +95,9 @@ def test_patch_b_pending_rules(client):
 def test_patch_c_plugin_install(client):
     """测试补丁C：插件生态接口"""
     res = client.post("/api/v1/plugins/install")
-    assert res.status_code == 200
+    assert res.status_code == 501
+    assert res.headers["X-Feature-Status"] == "not_implemented"
+    assert "未执行任何安装" in res.json()["detail"]
 
 def test_patch_d_cloud_sync(client):
     """测试补丁D：云端同步服务"""

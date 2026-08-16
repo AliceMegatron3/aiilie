@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 from typing import Any, Dict, Set
 
@@ -170,10 +171,17 @@ async def websocket_endpoint(
     鉴权：require_auth=true 时校验 token（query `?token=` 或 Authorization header），
     失败关闭连接（code=4001）；开发模式（require_auth=false）匿名放行。
     """
-    from core.config_manager import config_manager
     from core.security import verify_api_token
 
-    if bool(config_manager.get("security.require_auth", False)):
+    raw_require_auth = os.environ.get("AIILIE_SECURITY_REQUIRE_AUTH")
+    if raw_require_auth is None:
+        from core.config_manager import config_manager
+
+        require_auth = config_manager.get_bool("security.require_auth", False)
+    else:
+        require_auth = raw_require_auth.strip().lower() in {"1", "true", "yes", "on"}
+
+    if require_auth:
         auth_token = token or websocket.headers.get("Authorization", "").replace("Bearer ", "").strip()
         if not auth_token or not verify_api_token(auth_token):
             logger.warning("WebSocket 鉴权失败，拒绝连接 (Session: %s)", session_id)

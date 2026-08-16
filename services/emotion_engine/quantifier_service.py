@@ -104,6 +104,95 @@ class EmotionQuantifier:
             await self._export_emotion_card(frame)
         return frame
 
+    async def quantify_desire_state(
+        self,
+        scene_text: str,
+        character_profile: Any = None,
+        previous_state: Any = None,
+        related_assets: Any = None,
+        llm_client=None,
+    ) -> dict[str, Any]:
+        """生成临时的情感—欲望状态卡，不覆盖既有 EmotionFrame 协议。"""
+        from core.exceptions import CloudServiceDisabledError
+
+        if llm_client is None:
+            raise CloudServiceDisabledError("情感与欲望状态卡云端大模型")
+        prompt = prompt_manager.render(
+            "emotion_desire_state_card",
+            {
+                "character_profile": json.dumps(character_profile or {}, ensure_ascii=False),
+                "previous_state": json.dumps(previous_state or {}, ensure_ascii=False),
+                "scene_text": scene_text,
+                "emotion_ontology": "emotion_desire_ontology:v1",
+                "desire_ontology": "emotion_desire_ontology:v1",
+                "related_assets": json.dumps(related_assets or [], ensure_ascii=False),
+            },
+        )
+        raw = await llm_client.generate_completion(prompt, temperature=0.3, max_tokens=1400)
+        data = self._parse_llm_payload(raw)
+        data.setdefault("asset_type", "DataCard")
+        data.setdefault("metric_type", "emotion_desire_state")
+        data.setdefault("status", "DRAFT")
+        data.setdefault("needs_author_review", True)
+        data.setdefault("evidence", [])
+        data.setdefault("confidence", 0.0)
+        return data
+
+    async def extract_quantization_assets(
+        self,
+        source_text: str,
+        *,
+        project_id: str = "",
+        book_id: str = "",
+        task_id: str = "",
+        chapter_index: str = "",
+        scene_id: str = "",
+        source_file: str = "",
+        source_hash: str = "",
+        paragraph_range: str = "",
+        deterministic_metrics: Any = None,
+        context_assets: Any = None,
+        llm_client=None,
+    ) -> dict[str, Any]:
+        """执行分层量化资产抽取，输出待审核的可追溯 JSON 草稿。"""
+        from core.exceptions import CloudServiceDisabledError
+
+        if llm_client is None:
+            raise CloudServiceDisabledError("分层量化资产抽取云端大模型")
+        prompt = prompt_manager.render(
+            "quantization_asset_extract",
+            {
+                "project_id": project_id,
+                "book_id": book_id,
+                "task_id": task_id,
+                "chapter_index": chapter_index,
+                "scene_id": scene_id,
+                "source_file": source_file,
+                "source_hash": source_hash,
+                "paragraph_range": paragraph_range,
+                "prompt_version": "quantization_asset_extract:1.0.0",
+                "model_version": getattr(llm_client, "model_name", "unknown"),
+                "ontology_version": "emotion_desire_ontology:v1",
+                "source_text": source_text,
+                "deterministic_metrics": json.dumps(
+                    deterministic_metrics or {}, ensure_ascii=False
+                ),
+                "context_assets": json.dumps(context_assets or [], ensure_ascii=False),
+            },
+        )
+        raw = await llm_client.generate_completion(prompt, temperature=0.2, max_tokens=2200)
+        data = self._parse_llm_payload(raw)
+        data.setdefault("task_id", task_id)
+        data.setdefault("status", "DRAFT")
+        data.setdefault("facts", [])
+        data.setdefault("info_cards", [])
+        data.setdefault("data_cards", [])
+        data.setdefault("logic_cards", [])
+        data.setdefault("relations", [])
+        data.setdefault("uncertainties", [])
+        data.setdefault("author_review_questions", [])
+        return data
+
     async def _export_emotion_card(self, frame: EmotionFrame) -> None:
         """把情感帧导出为 DataCard（metric_type=emotion_frame）。"""
         try:

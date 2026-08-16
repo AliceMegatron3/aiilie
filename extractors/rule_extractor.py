@@ -18,6 +18,7 @@ import yaml
 from models.reflection import OptimizationRule, UniversalSkill
 from utils.resource_path import get_resource_path
 from utils.llm_adapter import DeepSeekClient
+from services.prompt_template_manager import prompt_manager
 logger = logging.getLogger(__name__)
 class RuleExtractor:
     """
@@ -160,21 +161,46 @@ class SkillExtractor:
                                 api_base=ds_config.get("api_base", "https://api.deepseek.com/v1"),
                                 model_name=ds_config.get("model_name", "deepseek-r1")
                             )
-                            prompt = f"请归纳以下同一题材小说的共同叙事风格，提取核心共性特征，字数限制在200字以内：\n{styles}"
+                            prompt = prompt_manager.render(
+                                "skill_candidate_governance",
+                                {
+                                    "observations": json.dumps(
+                                        [{"genre": genre, "style_samples": styles}],
+                                        ensure_ascii=False,
+                                    ),
+                                    "rule_candidates": "[]",
+                                    "active_skills": "[]",
+                                    "author_feedback": "[]",
+                                },
+                            )
                             
                             # 直接 await（extract_skills 已改为 async，不再 new_event_loop）
                             llm_res = await client.generate_completion(prompt)
                             if llm_res:
-                                summary_style = llm_res
+                                cleaned = llm_res.replace("```json", "").replace("```", "").strip()
+                                start, end = cleaned.find("{"), cleaned.rfind("}")
+                                if start >= 0 and end > start:
+                                    governance = json.loads(cleaned[start : end + 1])
+                                    candidates = governance.get("skill_candidates", [])
+                                    if candidates and isinstance(candidates[0], dict):
+                                        candidate = candidates[0]
+                                        summary_style = str(
+                                            candidate.get("draft", {}).get("prompt")
+                                            or candidate.get("prompt")
+                                            or candidate.get("description")
+                                            or summary_style
+                                        )[:1000]
+                                    if governance.get("governance_result", {}).get("status") == "PENDING_REVIEW":
+                                        summary_style = f"[待审核候选] {summary_style}"
                 except Exception as e:
-                    logger.warning("DeepSeek API 风格归纳提炼失败，降级回原有拼接逻辑: %s", e)
+                    logger.warning("技能治理模板调用失败，保留可追溯离线摘要并标记待审核: %s", e)
                 
                 skill = UniversalSkill(
                     type="STYLE",
                     name=f"{genre}流派_黄金叙事风格",
                     content={"genre": genre, "style_directives": summary_style},
                     source_cards=[],
-                    applicability=f"当创作题材被指定为【{genre}】时强制挂载该风格参数限制大模型语调"
+                    applicability=f"[PENDING_REVIEW] 当创作题材被指定为【{genre}】时，候选风格参数需经作者审核后使用"
                 )
                 new_skills.append(skill)
                 

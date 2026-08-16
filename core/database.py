@@ -35,6 +35,7 @@ def _is_locked_error(exc: BaseException) -> bool:
 _CREATE_TASKS_TABLE = """
 CREATE TABLE IF NOT EXISTS tasks (
     task_id         TEXT PRIMARY KEY,
+    task_type       TEXT NOT NULL DEFAULT 'command',
     raw_command     TEXT NOT NULL,
     priority        INTEGER NOT NULL DEFAULT 4,
     status          TEXT NOT NULL DEFAULT 'PENDING',
@@ -44,8 +45,15 @@ CREATE TABLE IF NOT EXISTS tasks (
     created_at      TEXT NOT NULL,
     updated_at      TEXT NOT NULL,
     completed_at    TEXT,
-    error_message   TEXT
+    error_message   TEXT,
+    task_payload    TEXT,
+    idempotency_key TEXT
 )
+"""
+_CREATE_TASK_IDEMPOTENCY_INDEX = """
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_idempotency_key
+ON tasks(idempotency_key)
+WHERE idempotency_key IS NOT NULL
 """
 _CREATE_SEGMENTS_TABLE = """
 CREATE TABLE IF NOT EXISTS segments (
@@ -219,6 +227,10 @@ class DatabaseManager:
                 ):
                     await self._connection.execute(statement)
                 await self._ensure_column("tasks", "retry_count", "INTEGER NOT NULL DEFAULT 0")
+                await self._ensure_column("tasks", "task_type", "TEXT NOT NULL DEFAULT 'command'")
+                await self._ensure_column("tasks", "task_payload", "TEXT")
+                await self._ensure_column("tasks", "idempotency_key", "TEXT")
+                await self._connection.execute(_CREATE_TASK_IDEMPOTENCY_INDEX)
                 await self._ensure_column("segments", "checkpoint_content", "TEXT")
                 await self._ensure_column("segments", "checkpoint_tail", "TEXT")
                 await self._ensure_column("segments", "checkpoint_summary", "TEXT")
@@ -326,14 +338,27 @@ class DatabaseManager:
     # ── 任务 CRUD ─────────────────────────────────────────────────
     async def insert_task(self, task: BasePipelineTask) -> None:
         now = datetime.now(timezone.utc).isoformat()
-        task_data = task.model_dump()
+        task_data = task.model_dump(mode="json")
+        payload = {
+            key: value
+            for key, value in task_data.items()
+            if key not in {
+                "task_id", "task_type", "raw_command", "priority", "status",
+                "segment_strategy", "model_source", "retry_count", "created_at",
+                "updated_at", "completed_at", "error_message", "idempotency_key",
+                "segments",
+            }
+        }
         await self.execute_write(
             """INSERT INTO tasks
-               (task_id, raw_command, priority, status, segment_strategy,
-                model_source, retry_count, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               (task_id, task_type, raw_command, priority, status, segment_strategy,
+                model_source, retry_count, created_at, updated_at, task_payload,
+                idempotency_key)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT DO NOTHING""",
             (
                 task.task_id,
+                task_data.get("task_type", "command"),
                 task_data.get("raw_command", ""),
                 task.priority,
                 task.status.value if hasattr(task.status, "value") else task.status,
@@ -342,18 +367,69 @@ class DatabaseManager:
                 task.retry_count,
                 now,
                 now,
+                json.dumps(payload, ensure_ascii=False),
+                task_data.get("idempotency_key"),
             ),
         )
+
+    async def get_task_by_idempotency_key(self, key: str) -> dict[str, Any] | None:
+        cursor = await self.conn.execute(
+            "SELECT * FROM tasks WHERE idempotency_key=?", (key,)
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            return None
+        columns = [desc[0] for desc in cursor.description]
+        return dict(zip(columns, row))
+
+    async def recover_interrupted_tasks(self) -> int:
+        """将进程退出时遗留的 RUNNING 任务恢复为可重新认领的 PENDING。"""
+        now = datetime.now(timezone.utc).isoformat()
+        await self.execute_write(
+            """UPDATE tasks SET status='PENDING', updated_at=?
+               WHERE status='RUNNING'""",
+            (now,),
+        )
+        cursor = await self.conn.execute(
+            "SELECT COUNT(*) FROM tasks WHERE status='PENDING' AND updated_at=?",
+            (now,),
+        )
+        row = await cursor.fetchone()
+        return int(row[0]) if row else 0
+
+    async def claim_task(self, task_id: str) -> bool:
+        """原子认领一个 PENDING 任务，防止重复入队导致重复执行。"""
+        now = datetime.now(timezone.utc).isoformat()
+        from core.db_pool import db_pool
+
+        async with db_pool.write_lock(self._db_path):
+            await self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                cursor = await self.conn.execute(
+                    """UPDATE tasks SET status='RUNNING', updated_at=?,
+                       error_message=NULL WHERE task_id=? AND status='PENDING'""",
+                    (now, task_id),
+                )
+                await self.conn.commit()
+                return cursor.rowcount == 1
+            except Exception:
+                await self.conn.rollback()
+                raise
+
     async def update_task_status(
         self, task_id: str, status: str, error_message: str | None = None
-    ) -> None:
+    ) -> bool:
         now = datetime.now(timezone.utc).isoformat()
         completed = now if status in ("COMPLETED", "FAILED") else None
         await self.execute_write(
             """UPDATE tasks SET status=?, updated_at=?, completed_at=?,
-               error_message=? WHERE task_id=?""",
-            (status, now, completed, error_message, task_id),
+               error_message=?
+               WHERE task_id=? AND (status NOT IN ('COMPLETED','FAILED','CANCELLED')
+               OR status=?)""",
+            (status, now, completed, error_message, task_id, status),
         )
+        row = await self.get_task(task_id)
+        return row is not None and row.get("status") == status
     async def increment_retry_count(self, task_id: str) -> None:
         """任务失败时增加重试计数。"""
         await self.execute_write(

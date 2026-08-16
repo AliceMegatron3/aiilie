@@ -29,6 +29,7 @@ from core.database import DatabaseManager
 from core.task_manager import TaskManager
 from core.path_resolver import get_temp_root
 from core.security import is_cloud_enabled
+from core.health import validate_startup_configuration
 
 logger = logging.getLogger("ai_v4_bootstrap")
 
@@ -485,6 +486,7 @@ async def setup_control_center(app: FastAPI) -> None:
         batch1_task_manager=batch1_task_manager,
         load_estimator=load_estimator,
         divergent_engine=divergent_engine,
+        indexer=indexer,
         # 第十部分：多智能体小说创作总监督管（开关关闭时为 None）
         novel_supervisor=getattr(app.state, "novel_supervisor", None),
     )
@@ -583,8 +585,10 @@ async def _queue_worker(app: FastAPI) -> None:
     while True:
         task_id = None
         try:
-            task_id, coro = await queue.pop()
+            task_id, queued_task = await queue.pop()
             logger.info("[QueueWorker] 开始执行任务 %s", task_id)
+            # 优先使用延迟工厂：只有任务真正出队后才创建 coroutine。
+            coro = queued_task() if callable(queued_task) else queued_task
             await coro
             logger.info("[QueueWorker] 任务 %s 执行完毕", task_id)
         except asyncio.CancelledError:
@@ -729,6 +733,13 @@ async def stop_background_tasks(app: FastAPI) -> None:
 async def initialize_app(app: FastAPI) -> None:
     """按序执行全部装配阶段（任一阶段失败即中断启动，fail fast）。"""
     logger.info("====== 正在启动 No.0 AI V4.0 系统 ======")
+    app.state.initialization_complete = False
+    app.state.initialization_error = None
+    configuration_problems = validate_startup_configuration()
+    if configuration_problems:
+        logger.error("[Bootstrap] 启动配置校验失败: %s", "; ".join(configuration_problems))
+        app.state.initialization_error = "startup_configuration_invalid"
+        raise RuntimeError("启动配置校验失败，请检查生产环境安全配置")
     await setup_base(app)
     await setup_batch1_engine(app)
     await setup_llm_client(app)
@@ -762,6 +773,7 @@ async def initialize_app(app: FastAPI) -> None:
     except Exception as cleanup_exc:
         logger.warning("[Bootstrap] 发散引擎临时目录清理异常（不阻塞启动）: %s", cleanup_exc)
     start_background_tasks(app)
+    app.state.initialization_complete = True
     logger.info("系统初始化完成，全部路由与底座处于 Standby 状态。")
 
 

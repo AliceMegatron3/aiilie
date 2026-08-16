@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from core.database import DatabaseManager
 from api.deps import get_db, get_llm_client, verify_token
 from services.emotion_engine.frame_manager import EmotionFrameManager
@@ -13,11 +13,32 @@ router = APIRouter(prefix="/emotion", tags=["Emotion Engine"], dependencies=[Dep
 
 class QuantifyRequest(BaseModel):
     text: str
-    project_id: str = None
-    book_id: str = None
+    project_id: str | None = None
+    book_id: str | None = None
 
 class GenerateRequest(BaseModel):
     frame_id: str
+
+
+class DesireStateRequest(BaseModel):
+    scene_text: str
+    character_profile: dict = Field(default_factory=dict)
+    previous_state: dict = Field(default_factory=dict)
+    related_assets: list = Field(default_factory=list)
+
+
+class AssetExtractRequest(BaseModel):
+    source_text: str
+    project_id: str = ""
+    book_id: str = ""
+    task_id: str = ""
+    chapter_index: str = ""
+    scene_id: str = ""
+    source_file: str = ""
+    source_hash: str = ""
+    paragraph_range: str = ""
+    deterministic_metrics: dict = Field(default_factory=dict)
+    context_assets: list = Field(default_factory=list)
 
 def get_engine_services(db: DatabaseManager, request: Request = None):
     if not config_manager.get("feature.emotion_quantify_enable", False):
@@ -33,6 +54,7 @@ def get_engine_services(db: DatabaseManager, request: Request = None):
 @router.post("/quantify")
 async def quantify_text(
     req: QuantifyRequest,
+    request: Request,
     db: DatabaseManager = Depends(get_db),
     llm_client=Depends(get_llm_client),
 ):
@@ -42,7 +64,7 @@ async def quantify_text(
             status_code=503,
             detail="云端大模型未启用，无法执行情感量化。请先在设置中配置 API 密钥并开启开关。",
         )
-    frame_manager, quantifier = get_engine_services(db)
+    frame_manager, quantifier = get_engine_services(db, request)
     try:
         frame = await quantifier.quantify_single_fragment(
             req.text, req.project_id, req.book_id, llm_client=llm_client
@@ -51,6 +73,58 @@ async def quantify_text(
     except Exception as e:
         logger.error("情感量化失败: %s", e)
         raise HTTPException(status_code=502, detail=f"情感量化失败: {e}")
+
+
+@router.post("/quantify/desire-state")
+async def quantify_desire_state(
+    req: DesireStateRequest,
+    request: Request,
+    db: DatabaseManager = Depends(get_db),
+    llm_client=Depends(get_llm_client),
+):
+    """生成证据约束的情感—欲望临时状态卡。"""
+    _, quantifier = get_engine_services(db, request)
+    try:
+        result = await quantifier.quantify_desire_state(
+            req.scene_text,
+            character_profile=req.character_profile,
+            previous_state=req.previous_state,
+            related_assets=req.related_assets,
+            llm_client=llm_client,
+        )
+        return {"status": "success", "state_card": result}
+    except Exception as e:
+        logger.error("情感欲望状态卡生成失败: %s", e)
+        raise HTTPException(status_code=502, detail=f"情感欲望状态卡生成失败: {e}")
+
+
+@router.post("/quantify/assets")
+async def extract_quantization_assets(
+    req: AssetExtractRequest,
+    db: DatabaseManager = Depends(get_db),
+    llm_client=Depends(get_llm_client),
+):
+    """生成分层量化资产草稿；结果必须经过后续审核才能成为正式资产。"""
+    _, quantifier = get_engine_services(db)
+    try:
+        result = await quantifier.extract_quantization_assets(
+            req.source_text,
+            project_id=req.project_id,
+            book_id=req.book_id,
+            task_id=req.task_id,
+            chapter_index=req.chapter_index,
+            scene_id=req.scene_id,
+            source_file=req.source_file,
+            source_hash=req.source_hash,
+            paragraph_range=req.paragraph_range,
+            deterministic_metrics=req.deterministic_metrics,
+            context_assets=req.context_assets,
+            llm_client=llm_client,
+        )
+        return {"status": "success", "assets": result}
+    except Exception as e:
+        logger.error("分层量化资产抽取失败: %s", e)
+        raise HTTPException(status_code=502, detail=f"分层量化资产抽取失败: {e}")
 
 @router.post("/generate")
 async def generate_text(

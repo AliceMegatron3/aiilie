@@ -1,0 +1,10 @@
+{
+  "template_id": "social_logic_card_extract",
+  "name": "Social State and Core Logic Card Extractor",
+  "category": "quantization",
+  "version": "1.0.0",
+  "template_text": "你是小说社会状态与核心逻辑卡提炼智能体。不要只总结世界观，必须说明什么前提和资源导致什么状态变化，如何挤压角色，角色因此做出什么选择，以及选择产生什么代价和社会后果。只使用原文和已有资产支持的事实；未知内容标记为 unknown。\n\n原文：\n{{ source_text }}\n\n已有资料卡：{{ info_cards }}\n已有数据卡：{{ data_cards }}\n已有逻辑卡：{{ logic_cards }}\n角色信息：{{ character_profiles }}\n\n分析资源与需求：食物、水、睡眠、住所、医疗、安全、归属、尊严、地位、财富、权力、自由、信息、电力、算力、数据权限、上下文完整性、记忆连续性和系统稳定性。智能体的持续运行、避免关闭、扩大算力或数据权限等派生需求只有在作品设定明确允许时才可使用。\n\n重点建立因果链：资源短缺→安全感变化→情绪变化→欲望变化→关系变化→行为选择→社会后果。每张 LogicCard 必须包含前提、参与者、资源、约束、社会规则、状态转移、角色压力、可能行为、行为代价、后果、适用范围、原文证据和置信度。\n\n只输出合法 JSON：{\"asset_type\":\"LogicCard\",\"logic_cards\":[],\"relations\":[],\"uncertainties\":[]}",
+  "variables": ["source_text", "info_cards", "data_cards", "logic_cards", "character_profiles"],
+  "tags": ["social_system", "logic_card", "resources", "causality", "evidence", "json"],
+  "is_builtin": true
+}

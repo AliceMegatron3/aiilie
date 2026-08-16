@@ -46,6 +46,7 @@ import CreativeCopilot from './components/CreativeCopilot.vue'
 import ToastContainer from './components/ui/ToastContainer.vue'
 import SubconsciousStream from './components/SubconsciousStream.vue'
 import { useAppStore } from './stores/useAppStore'
+import { startHealthPolling, stopHealthPolling } from './api'
 
 const appStore = useAppStore()
 const rightPanelWidth = ref(380) // 默认宽度
@@ -75,7 +76,10 @@ const stopResize = () => {
   document.removeEventListener('mouseup', stopResize)
 }
 
+onMounted(startHealthPolling)
+
 onUnmounted(() => {
+  stopHealthPolling()
   document.removeEventListener('mousemove', onResize)
   document.removeEventListener('mouseup', stopResize)
 })

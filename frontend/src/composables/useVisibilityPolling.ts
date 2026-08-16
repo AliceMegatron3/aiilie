@@ -10,6 +10,7 @@ export function useVisibilityPolling(fetcher: () => void | Promise<void>, interv
   const isVisible = ref(typeof document === 'undefined' ? true : !document.hidden)
   let timer: ReturnType<typeof setInterval> | null = null
   let running = false
+  let inFlight: Promise<void> | null = null
 
   const stop = () => {
     if (timer) {
@@ -19,19 +20,30 @@ export function useVisibilityPolling(fetcher: () => void | Promise<void>, interv
     running = false
   }
 
+  const run = () => {
+    if (!isVisible.value || inFlight) return
+
+    try {
+      inFlight = Promise.resolve(fetcher())
+    } catch {
+      return
+    }
+    inFlight = inFlight.catch(() => undefined).finally(() => {
+      inFlight = null
+    })
+  }
+
   const start = () => {
     if (running) return
     running = true
-    fetcher()
-    timer = setInterval(() => {
-      if (isVisible.value) fetcher()
-    }, intervalMs)
+    run()
+    timer = setInterval(run, intervalMs)
   }
 
   const onVisibilityChange = () => {
     isVisible.value = !document.hidden
     if (isVisible.value) {
-      fetcher() // 恢复可见立即刷新
+      run() // 恢复可见立即刷新；若已有请求则复用当前请求
     }
   }
 

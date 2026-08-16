@@ -1,0 +1,10 @@
+{
+  "template_id": "emotion_desire_ontology",
+  "name": "Default Emotion and Desire Ontology",
+  "category": "EmotionEngine",
+  "version": "1.0.0",
+  "template_text": "默认七情：喜（愉悦、满足、兴奋、欣慰、希望）；怒（不满、愤怒、敌意、报复、反抗）；哀（失落、悲伤、痛苦、绝望、哀悼）；惧（担忧、紧张、恐惧、逃避、惊慌）；爱（亲近、依恋、关怀、保护、牺牲）；恶（厌恶、排斥、鄙视、嫌弃、拒绝）；惊（意外、震撼、疑惑、失措、认知冲击）。\n\n默认六欲：生存欲（维持生命、避免死亡、维持身体状态）；安全欲（保护、稳定、住所、秩序）；归属欲（家庭、群体、组织、情感连接）；尊严欲（尊重、体面、承认、自我价值）；权力欲（影响他人、掌控资源、改变规则）；自由欲（摆脱束缚、扩大选择、保持独立）。\n\n如果作者或作品已有本体，必须优先使用作者版本，并记录 ontology_version；不得将本模板视为不可修改的正式世界观。\n\n请输出当前任务所使用的本体版本、启用的情绪类别、欲望类别、定义、禁用项和需要作者确认的差异，且只输出合法 JSON。",
+  "variables": [],
+  "tags": ["emotion", "desire", "ontology", "seven_emotions", "six_desires", "json"],
+  "is_builtin": true
+}

@@ -30,29 +30,48 @@ export function useWebSocket({ onMessage, onReconnect, sessionId = 'default_glob
   const taskHandlers = new Map<string, TaskHandler>()
   let hasReconnected = false
 
+  const sendTaskSubscription = (socket: WebSocket, taskId: string) => {
+    if (socket.readyState !== WebSocket.OPEN) return
+    try {
+      socket.send(JSON.stringify({ action: 'subscribe_task', task_id: taskId }))
+    } catch (_e) {
+      // 连接在检查 readyState 后关闭时忽略发送失败，onclose 会负责重连。
+    }
+  }
+
+  const restoreTaskSubscriptions = (socket: WebSocket) => {
+    for (const taskId of taskHandlers.keys()) {
+      sendTaskSubscription(socket, taskId)
+    }
+  }
+
   const url = `${getWsBaseURL()}/api/v1/ws?session_id=${encodeURIComponent(sessionId)}`
 
   const connect = () => {
     if (manuallyClosed) return
     try {
-      ws = new WebSocket(url)
+      const socket = new WebSocket(url)
+      ws = socket
     } catch (_e) {
       scheduleReconnect()
       return
     }
 
-    ws.onopen = () => {
+    const socket = ws
+    if (!socket) return
+
+    socket.onopen = () => {
       connected.value = true
       retryDelay = 1000 // 连接成功，退避重置
+      // 服务端会在断开时清理旧连接的订阅；新连接建立后必须恢复本地订阅集合。
+      restoreTaskSubscriptions(socket)
       if (hasReconnected && onReconnect) {
           onReconnect()
       }
       hasReconnected = true
     }
 
-    ws.onmessage = (event) => {
-      const socket = ws
-      if (!socket) return
+    socket.onmessage = (event) => {
       let data: WsData
       try {
         data = JSON.parse(event.data) as WsData
@@ -77,12 +96,13 @@ export function useWebSocket({ onMessage, onReconnect, sessionId = 'default_glob
       if (onMessage) onMessage(data)
     }
 
-    ws.onclose = () => {
+    socket.onclose = () => {
+      if (ws !== socket) return
       connected.value = false
       scheduleReconnect()
     }
 
-    ws.onerror = () => {
+    socket.onerror = () => {
       // onclose 会紧随其后触发，无需重复处理
     }
   }
@@ -105,7 +125,7 @@ export function useWebSocket({ onMessage, onReconnect, sessionId = 'default_glob
   const subscribeTask = (taskId: string, handler: TaskHandler) => {
     taskHandlers.set(taskId, handler)
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ action: 'subscribe_task', task_id: taskId }))
+      sendTaskSubscription(ws, taskId)
     }
   }
 

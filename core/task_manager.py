@@ -23,6 +23,17 @@ from models.task import BasePipelineTask, CommandTask, LearningTask, QuantizeTas
 logger = logging.getLogger(__name__)
 
 def _parse_task_dict(task_dict: dict[str, Any]) -> BasePipelineTask:
+    task_dict = dict(task_dict)
+    payload = task_dict.pop("task_payload", None)
+    if isinstance(payload, str):
+        try:
+            import json
+            extra = json.loads(payload)
+            if isinstance(extra, dict):
+                for key, value in extra.items():
+                    task_dict.setdefault(key, value)
+        except (TypeError, ValueError):
+            logger.warning("任务 %s 的扩展 payload 无法解析", task_dict.get("task_id"))
     task_type = task_dict.get("task_type", "command")
     if task_type == "learning":
         return LearningTask(**task_dict)
@@ -43,6 +54,7 @@ class TaskManager:
         self._is_running = False
     async def initialize(self) -> None:
         """从数据库中加载未完成的任务以进行恢复。"""
+        await self.db.recover_interrupted_tasks()
         pending_tasks = await self.db.get_pending_tasks()
         logger.info("从数据库恢复了 %d 个待处理任务", len(pending_tasks))
         for task_dict in pending_tasks:
@@ -56,17 +68,35 @@ class TaskManager:
         priority = task.priority
         created_at = task.created_at.isoformat() if isinstance(task.created_at, datetime) else str(task.created_at)
         await self._queue.put((priority, created_at, task.task_id, task))
-    async def submit_task(self, task: BasePipelineTask) -> None:
+    async def submit_task(self, task: BasePipelineTask) -> BasePipelineTask:
         """
         提交一个新任务：
         1. 持久化到 SQLite 数据库
         2. 加入内存优先级队列
         """
-        # 写入数据库，双写策略保证不丢失
+        existing = await self.db.get_task(task.task_id)
+        if existing is None and task.idempotency_key:
+            existing = await self.db.get_task_by_idempotency_key(task.idempotency_key)
+        if existing is not None:
+            existing_task = _parse_task_dict(existing)
+            logger.info("幂等提交命中已有任务: %s", existing_task.task_id)
+            return existing_task
+
+        # 写入数据库，双写策略保证不丢失；唯一冲突时重新读取既有任务。
         await self.db.insert_task(task)
+        persisted = await self.db.get_task(task.task_id)
+        if persisted is None:
+            if task.idempotency_key:
+                persisted = await self.db.get_task_by_idempotency_key(task.idempotency_key)
+            if persisted is None:
+                raise RuntimeError(f"任务持久化失败: {task.task_id}")
+            existing_task = _parse_task_dict(persisted)
+            logger.info("并发提交命中已有幂等任务: %s", existing_task.task_id)
+            return existing_task
         # 推送至内存队列
         await self._enqueue_task(task)
         logger.info("任务已提交: %s (优先级: %s)", task.task_id, task.priority)
+        return task
     async def update_task_status(
         self, task_id: str, status: str, error_message: str | None = None
     ) -> None:
@@ -106,8 +136,11 @@ class TaskManager:
             except asyncio.CancelledError:
                 break
             logger.info("[Worker-%d] 开始处理任务: %s", worker_id, task_id)
-            # 标记为 RUNNING
-            await self.update_task_status(task_id, "RUNNING")
+            # 原子认领：重复入队、旧队列残留或已取消任务均不得再次执行。
+            if not await self.db.claim_task(task_id):
+                self._queue.task_done()
+                continue
+            task.status = "RUNNING"
             try:
                 # 执行具体业务逻辑（由外部传入 handler 负责执行 Pipeline）
                 await handler(task)
@@ -120,6 +153,13 @@ class TaskManager:
                 await self.db.increment_retry_count(task_id)
             finally:
                 self._queue.task_done()
+
+    async def cancel_task(self, task_id: str) -> bool:
+        """取消尚未被 worker 认领的任务；已进入终态的任务不可逆。"""
+        row = await self.db.get_task(task_id)
+        if row is None or row.get("status") in {"COMPLETED", "FAILED", "CANCELLED"}:
+            return False
+        return await self.db.update_task_status(task_id, "CANCELLED")
     async def stop(self) -> None:
         """停止所有 worker 并等待当前任务完成。"""
         self._is_running = False

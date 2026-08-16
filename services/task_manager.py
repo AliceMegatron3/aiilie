@@ -112,7 +112,8 @@ class TaskManager:
 
     async def initialize(self) -> None:
         """启动时从数据库恢复未完成的任务（含分段记录与中断现场）。"""
-        # P2：恢复非终态任务（PENDING + RUNNING），RUNNING 视为异常中断需重跑
+        # P2：恢复非终态任务（PENDING + RUNNING），RUNNING 视为异常中断需重跑。
+        await self._db.recover_interrupted_tasks()
         pending = await self._db.get_active_tasks()
         for row in pending:
             task = CommandTask(
@@ -124,6 +125,7 @@ class TaskManager:
                 status=TaskStatus(row["status"]),
                 segment_strategy=row["segment_strategy"],
                 model_source=ModelSource(row["model_source"]),
+                idempotency_key=row.get("idempotency_key"),
             )
             # P2：恢复分段记录，使异常中断的任务可从中断点继续
             seg_rows = await self._db.get_segments_for_task(task.task_id)
@@ -190,6 +192,7 @@ class TaskManager:
         priority: int = 4,
         segment_strategy: str = "auto",
         model_source: str = "local",
+        idempotency_key: str | None = None,
     ) -> CommandTask:
         """
         提交新任务。
@@ -219,11 +222,34 @@ class TaskManager:
                 raw_strategy,
             )
 
+        if idempotency_key:
+            existing = await self._db.get_task_by_idempotency_key(idempotency_key)
+            if existing is not None:
+                cached = self._tasks.get(existing["task_id"])
+                if cached is not None:
+                    return cached
+                existing_task = CommandTask(
+                    task_id=existing["task_id"],
+                    raw_command=existing["raw_command"],
+                    priority=self._clamp_priority(existing.get("priority")),
+                    status=TaskStatus(existing["status"]),
+                    segment_strategy=existing.get("segment_strategy", "auto"),
+                    model_source=ModelSource(existing.get("model_source", "local")),
+                    idempotency_key=existing.get("idempotency_key"),
+                )
+                existing_task.segments = [
+                    self._segment_from_row(row)
+                    for row in await self._db.get_segments_for_task(existing_task.task_id)
+                ]
+                self._tasks[existing_task.task_id] = existing_task
+                return existing_task
+
         task = CommandTask(
             raw_command=raw_command,
             priority=priority,
             segment_strategy=segment_strategy,
             model_source=ModelSource(model_source),
+            idempotency_key=idempotency_key,
         )
 
         # 分段拆解
@@ -232,6 +258,41 @@ class TaskManager:
 
         # 写入数据库
         await self._db.insert_task(task)
+        persisted = await self._db.get_task(task.task_id)
+        if persisted is None:
+            if idempotency_key:
+                persisted = await self._db.get_task_by_idempotency_key(idempotency_key)
+            if persisted is None:
+                raise RuntimeError(f"任务持久化失败: {task.task_id}")
+            existing_task = self._tasks.get(persisted["task_id"])
+            if existing_task is not None:
+                return existing_task
+            existing_task = CommandTask(
+                task_id=persisted["task_id"],
+                raw_command=persisted["raw_command"],
+                priority=self._clamp_priority(persisted.get("priority")),
+                status=TaskStatus(persisted["status"]),
+                segment_strategy=persisted.get("segment_strategy", "auto"),
+                model_source=ModelSource(persisted.get("model_source", "local")),
+                idempotency_key=persisted.get("idempotency_key"),
+            )
+            existing_task.segments = [
+                self._segment_from_row(row)
+                for row in await self._db.get_segments_for_task(existing_task.task_id)
+            ]
+            self._tasks[existing_task.task_id] = existing_task
+            return existing_task
+        if persisted.get("task_id") != task.task_id:
+            existing_task = self._tasks.get(persisted["task_id"])
+            if existing_task is not None:
+                return existing_task
+            return await self.submit_task(
+                raw_command=persisted["raw_command"],
+                priority=self._clamp_priority(persisted.get("priority")),
+                segment_strategy=persisted.get("segment_strategy", "auto"),
+                model_source=persisted.get("model_source", "local"),
+                idempotency_key=persisted.get("idempotency_key"),
+            )
         for seg in segments:
             await self._db.insert_segment(seg.model_dump(mode="json"))
 
@@ -264,7 +325,15 @@ class TaskManager:
         task = self._tasks.get(task_id)
         if task is None:
             logger.warning("任务 %s 在队列中但未找到记录", task_id)
+            self._queue.task_done()
             return None
+
+        persisted = await self._db.get_task(task_id)
+        if persisted is None or persisted.get("status") in {
+            "COMPLETED", "FAILED", "CANCELLED",
+        }:
+            self._queue.task_done()
+            return task
 
         # ── 专项4修复：全局硬超时（排队阶段） ──
         created = task.created_at
@@ -279,6 +348,7 @@ class TaskManager:
                 logger.warning(
                     "任务 %s 排队超时 %.0fs，强制终止", task_id, waited,
                 )
+                self._queue.task_done()
                 return task
 
         # 检查取消
@@ -287,14 +357,21 @@ class TaskManager:
             await self._db.update_task_status(task_id, "CANCELLED")
             self._cancelled_tasks.discard(task_id)
             logger.info("任务 %s 已被取消", task_id)
+            self._queue.task_done()
             return task
 
         # 检查暂停
         if task_id in self._paused_tasks:
             # 重新入队
             await self._queue.put((priority, task_id))
+            self._queue.task_done()
             logger.info("任务 %s 已暂停，重新入队", task_id)
             return None
+
+        # 原子认领，防止重复队列项导致同一任务被并发执行。
+        if not await self._db.claim_task(task_id):
+            self._queue.task_done()
+            return task
 
         # 标记为运行中
         task.status = TaskStatus.RUNNING
@@ -383,6 +460,7 @@ class TaskManager:
             seg_ids = [s.segment_id for s in task.segments]
             self._temp_manager.cleanup_task(task_id, seg_ids)
             task.updated_at = datetime.now(timezone.utc)
+            self._queue.task_done()
 
         return task
 
@@ -418,6 +496,10 @@ class TaskManager:
         3. 已取消但未出队（重复取消）：返回 True 幂等，保证前端可重试。
         """
         if task_id in self._tasks:
+            task = self._tasks[task_id]
+            if task.status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED):
+                logger.info("任务 %s 已处于终态 %s，无法取消", task_id, task.status.value)
+                return False
             # 已标记取消但尚未出队时幂等返回 True，避免前端误报"无法取消"
             if task_id in self._cancelled_tasks:
                 logger.info("任务 %s 已处于取消待出队状态（幂等返回）", task_id)
@@ -428,7 +510,11 @@ class TaskManager:
             # 现在同步将 DB 状态置为 CANCELLED，保证外部查询立即看到终态；
             # 内存任务后续出队时 process_next 仍会依据 _cancelled_tasks 跳过执行。
             try:
-                await self._db.update_task_status(task_id, "CANCELLED")
+                updated = await self._db.update_task_status(task_id, "CANCELLED")
+                if not updated:
+                    self._cancelled_tasks.discard(task_id)
+                    return False
+                task.status = TaskStatus.CANCELLED
             except Exception as exc:
                 logger.error("任务 %s 取消落库失败: %s", task_id, exc)
             logger.info("任务 %s 已标记为取消并落库终态", task_id)
@@ -441,9 +527,9 @@ class TaskManager:
             logger.info("任务 %s 已处于终态 %s，无法取消",
                         task_id, row.get("status"))
             return False
-        await self._db.update_task_status(task_id, "CANCELLED")
+        updated = await self._db.update_task_status(task_id, "CANCELLED")
         logger.info("任务 %s 已从数据库直接取消", task_id)
-        return True
+        return updated
 
     async def get_task_status(self, task_id: str) -> TaskStatusResponse | None:
         """查询任务状态。"""

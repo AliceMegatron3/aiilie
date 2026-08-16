@@ -1,0 +1,10 @@
+{
+  "template_id": "quantization_asset_extract",
+  "name": "Quantization and Traceable Asset Extractor",
+  "category": "quantization",
+  "version": "1.0.0",
+  "template_text": "请对指定小说片段执行分层量化，并生成可追溯的草稿资产。你不是在写普通总结。只记录原文明确事实；统计解释只能使用程序提供的统计值；推断必须降低置信度并列入 uncertainties。不得编造引用、定位、人物、事件或统计结果。\n\n项目：{{ project_id }}；书籍：{{ book_id }}；任务：{{ task_id }}；章节：{{ chapter_index }}；场景：{{ scene_id }}\n来源文件：{{ source_file }}；来源哈希：{{ source_hash }}；段落范围：{{ paragraph_range }}\n版本：prompt={{ prompt_version }}，model={{ model_version }}，ontology={{ ontology_version }}\n\n原文：\n{{ source_text }}\n\n程序统计：\n{{ deterministic_metrics }}\n已有上下文：\n{{ context_assets }}\n\n处理顺序：1. 提取可验证的人物、地点、时间、物品、事件、行动、关系和社会规则；2. 解释对话、动作、心理、环境、冲突密度、场景切换、情绪词和节奏变化；3. 为主要角色识别目标、情绪、欲望、压力、资源、阻力、关系变化、选择和代价；4. 识别食物、水、住所、安全、财富、权力、地位、归属、尊严、信息、电力、算力、数据权限、制度、阶层和群体压力；5. 只生成有证据支持的 derived_from、supports、contradicts、causes、changes_to、applies_to_character、applies_to_scene 和 belongs_to_skill 关系。\n\n每个资产都必须包含 asset_id、asset_type、project_id、book_id、source_ref、source_hash、version、status、confidence、evidence、related_assets、model_version、prompt_version、ontology_version 和 audit_info。\n\n只输出合法 JSON：{\"task_id\":\"{{ task_id }}\",\"status\":\"DRAFT\",\"facts\":[],\"info_cards\":[],\"data_cards\":[],\"logic_cards\":[],\"relations\":[],\"uncertainties\":[],\"author_review_questions\":[]}",
+  "variables": ["project_id", "book_id", "task_id", "chapter_index", "scene_id", "source_file", "source_hash", "paragraph_range", "prompt_version", "model_version", "ontology_version", "source_text", "deterministic_metrics", "context_assets"],
+  "tags": ["quantization", "info_card", "data_card", "logic_card", "evidence", "json"],
+  "is_builtin": true
+}

@@ -13,11 +13,22 @@ services:
     environment:
       # 可在此处注入并覆盖 config.yaml 的配置，例如：
       # - AIILIE_DEEPSEEK_API_KEY=your_key_here
+      # 生产部署必须设置：AIILIE_RUNTIME_ENV=production、
+      # AIILIE_SECURITY_REQUIRE_AUTH=true、AIILIE_SECURITY_AUTH_SECRET=<随机密钥>
+      - AIILIE_RUNTIME_ENV=${AIILIE_RUNTIME_ENV:-development}
+      - AIILIE_SECURITY_REQUIRE_AUTH=${AIILIE_SECURITY_REQUIRE_AUTH:-false}
+      - AIILIE_SECURITY_AUTH_SECRET=${AIILIE_SECURITY_AUTH_SECRET:-}
       - TZ=Asia/Shanghai
       # 缓存开关适配（Patch A 分布式预备）：若设为 redis，则使用 redis 容器；设为 memory 则降级为本机内存
       - CACHE_BACKEND=${CACHE_BACKEND:-memory}
       - REDIS_URL=redis://redis:6379/0
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     depends_on:
       redis:
         condition: service_started

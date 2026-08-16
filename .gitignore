@@ -28,3 +28,5 @@ dist/
 
 # 工具本地目录
 .workbuddy/
+# ZCode会话数据
+.zcode/

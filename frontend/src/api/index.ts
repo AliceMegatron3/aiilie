@@ -24,22 +24,48 @@ const apiClient = axios.create({
 })
 
 // 健康探针与请求排队 (5.1)
-let isBackendHealthy = true;
+let isBackendHealthy = true
 // 后端健康探针挂在根路径 /health，而非 /api/v1 前缀下；据此推导探针 URL。
-const healthURL = baseURL.replace(/\/api\/v1\/?$/, '') + '/health';
-const checkHealth = async () => {
-  try {
-    await axios.get(healthURL, { timeout: 1000 });
-    isBackendHealthy = true;
-  } catch (e) {
-    isBackendHealthy = false;
+const healthURL = baseURL.replace(/\/api\/v1\/?$/, '') + '/health'
+let healthTimer: ReturnType<typeof setInterval> | null = null
+let healthProbe: Promise<void> | null = null
+
+export const checkHealth = async (): Promise<void> => {
+  if (healthProbe) return healthProbe
+
+  healthProbe = axios.get(healthURL, { timeout: 1000 }).then(
+    () => {
+      isBackendHealthy = true
+    },
+    () => {
+      isBackendHealthy = false
+    },
+  ).finally(() => {
+    healthProbe = null
+  })
+
+  return healthProbe
+}
+
+/** 启动全局单例健康探针；重复启动不会创建额外 timer。 */
+export const startHealthPolling = (): void => {
+  if (healthTimer) return
+  void checkHealth()
+  healthTimer = setInterval(() => {
+    void checkHealth()
+  }, 3000)
+}
+
+/** 停止健康探针并释放 timer；应用卸载或测试环境清理时调用。 */
+export const stopHealthPolling = (): void => {
+  if (healthTimer) {
+    clearInterval(healthTimer)
+    healthTimer = null
   }
-};
-setInterval(checkHealth, 3000);
-checkHealth();
+}
 
 apiClient.interceptors.request.use(async (config) => {
-  if (config.url === '/health') return config;
+  if (config.url === '/health') return config
   
   if (!isBackendHealthy) {
     let waited = 0;

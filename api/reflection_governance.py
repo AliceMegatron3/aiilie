@@ -1,20 +1,165 @@
+import json
+from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 import logging
 import uuid
-from api.deps import verify_token
+from api.deps import get_db, get_llm_client, verify_token
+from services.author_review import parse_author_review, render_author_review_prompt
+from services.skill_governance import (
+    SkillGovernance,
+    SkillGovernanceError,
+)
 logger = logging.getLogger(__name__)
 router = APIRouter(dependencies=[Depends(verify_token)])
+
+_skill_governance = SkillGovernance()
+
+
+class AuthorReviewRequest(BaseModel):
+    asset: Any
+    evidence: list[Any] = Field(default_factory=list)
+    scope: dict[str, Any] = Field(default_factory=dict)
+    existing_rules: list[Any] = Field(default_factory=list)
+    reviewer: str = "author"
+
+
+class SkillCandidateRequest(BaseModel):
+    name: str
+    prompt: str
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    source_task: str = ""
+    source_reflection: str = ""
+
+
+class SkillReviewRequest(BaseModel):
+    reviewer: str = "author"
+    note: str = ""
 @router.get("/reflection/pending-rules")
-async def get_pending_rules():
-    """补丁B扩展：人工审核界面，获取待审核规则"""
-    # 实际应从数据库查询 pending 状态的规则
-    # 此处返回空列表，由前端展示空状态
-    return {"data": []}
+async def get_pending_rules(db=Depends(get_db)):
+    """读取尚未启用的优化规则，供作者/管理员审核界面使用。"""
+    try:
+        cursor = await db.conn.execute(
+            "SELECT * FROM optimization_rules WHERE is_active = 0 ORDER BY confidence DESC"
+        )
+        rows = await cursor.fetchall()
+        columns = [description[0] for description in cursor.description]
+        return {"data": [dict(zip(columns, row)) for row in rows]}
+    except Exception as exc:
+        logger.error("读取待审核规则失败: %s", exc)
+        raise HTTPException(status_code=503, detail="规则审核存储暂不可用") from exc
+
+
 @router.post("/reflection/rules/{rule_id}/approve")
-async def approve_rule(rule_id: str):
-    """补丁B扩展：管理员手动批准一条高置信度规则上线"""
+async def approve_rule(rule_id: str, db=Depends(get_db)):
+    """批准已存在的规则；不接受不存在的 ID，也不伪造上线成功。"""
     if not rule_id:
         raise HTTPException(status_code=400, detail="rule_id 不能为空")
-    logger.info(f"✅ 人工干预：规则 {rule_id} 已被批准上线！")
-    # 实际应更新数据库中规则的 is_active 状态
+    try:
+        cursor = await db.conn.execute(
+            "SELECT is_active FROM optimization_rules WHERE rule_id = ?", (rule_id,)
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="规则不存在，未执行批准")
+        if bool(row[0]):
+            return {"status": "already_active", "message": f"Rule {rule_id} 已处于激活状态。", "rule_id": rule_id}
+        cursor = await db.conn.execute(
+            "UPDATE optimization_rules SET is_active = 1 WHERE rule_id = ? AND is_active = 0",
+            (rule_id,),
+        )
+        if cursor.rowcount != 1:
+            await db.conn.rollback()
+            raise HTTPException(status_code=409, detail="规则状态已发生变化，未执行批准")
+        await db.conn.commit()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        await db.conn.rollback()
+        logger.error("批准规则失败: %s", exc)
+        raise HTTPException(status_code=503, detail="规则审核存储暂不可用") from exc
+    logger.info("人工批准优化规则: %s", rule_id)
     return {"status": "success", "message": f"Rule {rule_id} activated.", "rule_id": rule_id}
+
+
+@router.post("/reflection/author-review")
+async def author_review(
+    payload: AuthorReviewRequest,
+    llm_client=Depends(get_llm_client),
+):
+    """生成作者审核意见；不自动批准或发布资产。"""
+    prompt = render_author_review_prompt(
+        payload.asset,
+        evidence=payload.evidence,
+        scope=payload.scope,
+        existing_rules=payload.existing_rules,
+        reviewer=payload.reviewer,
+    )
+    if llm_client is None:
+        return {
+            "status": "needs_review",
+            "decision": "MODIFY",
+            "reason": "审核模型未启用，已生成审核提示词但未形成自动意见。",
+            "prompt": prompt,
+        }
+    try:
+        raw = await llm_client.generate_completion(prompt, temperature=0.1, max_tokens=1000)
+        result = parse_author_review(raw)
+        if result is None:
+            raise ValueError("作者审核模型返回非合法审核 JSON")
+        return {"status": "reviewed", "review": result, "prompt": prompt}
+    except Exception as exc:
+        logger.warning("作者审核模型调用失败: %s", exc)
+        return {
+            "status": "needs_review",
+            "decision": "MODIFY",
+            "reason": "审核模型失败，未执行批准或发布。",
+            "prompt": prompt,
+        }
+
+
+@router.get("/reflection/skills/candidates")
+async def list_skill_candidates(status: str | None = None):
+    """读取技能候选缓冲池；正式技能不从该接口直接启用。"""
+    return {"data": _skill_governance.list_candidates(status=status)}
+
+
+@router.post("/reflection/skills/candidates")
+async def submit_skill_candidate(payload: SkillCandidateRequest):
+    """提交候选并执行规则初审，禁止绕过缓冲池直接落地。"""
+    try:
+        candidate_id = _skill_governance.submit_candidate(
+            payload.name,
+            payload.prompt,
+            confidence=payload.confidence,
+            source_task=payload.source_task,
+            source_reflection=payload.source_reflection,
+        )
+        status = _skill_governance.auto_review(candidate_id)
+        return {"status": status, "candidate_id": candidate_id}
+    except SkillGovernanceError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+@router.post("/reflection/skills/candidates/{candidate_id}/approve")
+async def approve_skill_candidate(candidate_id: str, payload: SkillReviewRequest):
+    """作者/管理员人工批准候选；批准后仍需显式 promote 才能版本化。"""
+    try:
+        status = _skill_governance.manual_approve(
+            candidate_id, reviewer=payload.reviewer, note=payload.note
+        )
+        return {"status": status, "candidate_id": candidate_id}
+    except SkillGovernanceError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+@router.post("/reflection/skills/candidates/{candidate_id}/reject")
+async def reject_skill_candidate(candidate_id: str, payload: SkillReviewRequest):
+    """人工驳回候选并保留审核审计记录。"""
+    try:
+        status = _skill_governance.reject(
+            candidate_id, reviewer=payload.reviewer, reason=payload.note or "作者驳回"
+        )
+        return {"status": status, "candidate_id": candidate_id}
+    except SkillGovernanceError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))

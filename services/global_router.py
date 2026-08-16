@@ -33,6 +33,8 @@ from services.optimization_applier import OptimizationApplier
 from services.reflection_trigger import ReflectionTrigger
 from core.task_manager import TaskManager
 from services.dispatcher import ModelDispatcher
+from models.cards import DataCard, InfoCard
+from models.library import LibraryCatalog, parse_library_command
 
 from abc import ABC, abstractmethod
 
@@ -61,6 +63,8 @@ class KeywordIntentDetector(IntentDetector):
     def detect(self, cmd_text: str) -> str:
         if any(kw in cmd_text for kw in ["新建项目", "创建项目"]):
             return "PROJECT_MANAGEMENT"
+        elif any(kw in cmd_text for kw in ["调用资料", "调用历史资料", "查资料", "检索资料", "调用卡片", "查找卡片", "创建卡片", "新建卡片", "维护卡片", "更新卡片", "关联卡片", "审计书库", "审计资料库"]):
+            return "LIBRARY"
         elif any(kw in cmd_text for kw in ["反思", "复盘", "自省", "学习分析"]):
             return "REFLECTION"
         elif any(kw in cmd_text for kw in ["量化", "入库", "解析卡片"]):
@@ -86,6 +90,7 @@ class GlobalRouter:
         load_estimator = None,
         divergent_engine = None,
         novel_supervisor = None,
+        indexer = None,
     ) -> None:
         self.task_queue = task_queue
         self.system_monitor = system_monitor
@@ -104,6 +109,7 @@ class GlobalRouter:
         self.divergent_engine = divergent_engine
         # 第十部分：多智能体小说创作总监督管（feature 开关关闭时为 None）
         self.novel_supervisor = novel_supervisor
+        self.indexer = indexer
         
         # Repetition block history: cmd_text -> list of timestamps
         self._command_history = {}
@@ -248,6 +254,7 @@ class GlobalRouter:
         priority_level: PriorityLevel,
         segment_strategy: str = "auto",
         mode: str = "rapid",
+        idempotency_key: str | None = None,
     ) -> CommandTask:
         """构造标准 CommandTask 并提交批次1引擎。"""
         priority = _PRIORITY_LEVEL_TO_BATCH1.get(priority_level, 4)
@@ -256,6 +263,7 @@ class GlobalRouter:
             priority=priority,
             segment_strategy=segment_strategy,
             model_source=self._map_mode_to_model_source(mode),
+            idempotency_key=idempotency_key,
         )
         logger.info(
             "[GlobalRouter] 已提交批次1引擎: task=%s, 分段数=%d, 优先级=%d",
@@ -268,6 +276,61 @@ class GlobalRouter:
     async def _route_project_management(self, req: CommandRequest) -> dict[str, Any]:
         """批次3 同步API链路处理，直接放行交由具体 handler 执行。"""
         return {"status": "bypassed", "intent": "PROJECT_MANAGEMENT", "target": "Batch3_ProjectManager"}
+
+    async def _route_library(self, req: CommandRequest, command) -> dict[str, Any]:
+        """Execute read-only retrieval or explicit author card operations."""
+        if command.action == "retrieve_material":
+            result = LibraryCatalog().retrieve(command.query, limit=int(command.filters.get("limit", 8)))
+            return {
+                "status": "completed", "intent": "LIBRARY", "action": command.action,
+                "query": command.query, "hits": [hit.model_dump(mode="json") for hit in result.hits],
+                "trace": result.trace,
+            }
+        if command.action == "audit":
+            catalog = LibraryCatalog()
+            manifest = catalog.manifest()
+            report = catalog.audit()
+            return {
+                "status": "completed", "intent": "LIBRARY", "action": command.action,
+                "report": report.model_dump(mode="json") | {"has_duplicate_ids": report.has_duplicate_ids},
+                "trace": [{"stage": "manifest_audit", "root": manifest.root_source_document_id}],
+            }
+        if self.indexer is None:
+            return {"status": "blocked", "intent": "LIBRARY", "reason": "INDEXER_UNAVAILABLE"}
+        if command.action == "retrieve_card":
+            cards = await self.indexer.search_cards(keyword=command.query or None, **command.filters)
+            return {"status": "completed", "intent": "LIBRARY", "action": command.action, "cards": cards,
+                    "trace": [{"stage": "card_index", "count": len(cards), "filters": command.filters}]}
+        if command.action == "create_card":
+            payload = dict(command.payload)
+            payload.setdefault("source_book_id", req.project_id or "author_library")
+            payload.setdefault("content", command.query)
+            if payload.get("card_type", "info") == "data":
+                payload.setdefault("metric_type", "author_metric")
+                payload.setdefault("value", {})
+                card = DataCard(**payload)
+            else:
+                payload.setdefault("card_sub_type", payload.get("knowledge_type", "author_note"))
+                card = InfoCard(**payload)
+            card_id = await self.indexer.save_card(card)
+            return {"status": "completed", "intent": "LIBRARY", "action": command.action, "card_id": card_id,
+                    "trace": [{"stage": "card_write", "card_id": card_id}]}
+        if command.action == "maintain_card":
+            if not command.card_id:
+                raise ValueError("维护卡片必须提供 card_id")
+            updated = await self.indexer.update_card_metadata(command.card_id, **command.payload)
+            return {"status": "completed" if updated else "not_found", "intent": "LIBRARY", "action": command.action,
+                    "card_id": command.card_id, "trace": [{"stage": "card_update", "updated": updated}]}
+        if command.action == "link_cards":
+            if not command.card_id or not command.target_card_id:
+                raise ValueError("关联卡片必须提供 card_id 与 target_card_id")
+            relation_id = await self.indexer.upsert_relation(
+                command.card_id, command.target_card_id, command.relation_type,
+                float(command.payload.get("weight", 1.0)), str(command.payload.get("note", "")),
+            )
+            return {"status": "completed", "intent": "LIBRARY", "action": command.action,
+                    "relation_id": relation_id, "trace": [{"stage": "relation_write", "relation_id": relation_id}]}
+        raise ValueError(f"不支持的书库命令: {command.action}")
 
     async def _route_reflection(self, req: CommandRequest) -> dict[str, Any]:
         """批次4 的重度离线分析，直接下发到底层触发器。"""
@@ -331,7 +394,7 @@ class GlobalRouter:
                 return
             await asyncio.sleep(0.5)
 
-        await self.task_queue.push(task_id, _lazy_quant(), PriorityLevel.LV6)
+        await self.task_queue.push(task_id, _lazy_quant, PriorityLevel.LV6)
         return {"status": "queued", "intent": "QUANTIZATION", "priority": PriorityLevel.LV6.name, "task_id": task_id}
 
     async def _route_doc_learning(
@@ -366,7 +429,7 @@ class GlobalRouter:
                 return
             await asyncio.sleep(0.5)
 
-        await self.task_queue.push(task_id, _lazy_doclearn(), PriorityLevel.LV6)
+        await self.task_queue.push(task_id, _lazy_doclearn, PriorityLevel.LV6)
         return {"status": "queued", "intent": "DOC_LEARNING", "priority": PriorityLevel.LV6.name, "task_id": task_id}
 
     async def _route_creation(
@@ -434,7 +497,11 @@ class GlobalRouter:
 
             if self._use_batch1_engine() and not use_divergent:
                 task = await self._submit_to_batch1(
-                    cmd_text, p_level, segment_strategy=strategy, mode=mode
+                    cmd_text,
+                    p_level,
+                    segment_strategy=strategy,
+                    mode=mode,
+                    idempotency_key=req.options.get("idempotency_key"),
                 )
                 logger.info(
                     "[GlobalRouter] 长任务判定生效，改走批次1引擎: "
@@ -577,7 +644,7 @@ class GlobalRouter:
 
         # 根据是否强制拆分调整优先级
         p_level = PriorityLevel.LV6 if use_split else PriorityLevel.LV4
-        await self.task_queue.push(task_id, _lazy_creation(), p_level)
+        await self.task_queue.push(task_id, _lazy_creation, p_level)
 
         return {
             "status": "queued",
@@ -613,8 +680,13 @@ class GlobalRouter:
             detector = KeywordIntentDetector()
             intent = detector.detect(cmd_text)
 
+        library_command = parse_library_command(cmd_text, req.options)
+        if library_command is not None:
+            intent = "LIBRARY"
+
         # 2. 路由分发（按意图拆分的独立处理器）
         handlers = {
+            "LIBRARY": lambda: self._route_library(req, library_command),
             "PROJECT_MANAGEMENT": lambda: self._route_project_management(req),
             "REFLECTION": lambda: self._route_reflection(req),
             "QUANTIZATION": lambda: self._route_quantization(req, cmd_text),

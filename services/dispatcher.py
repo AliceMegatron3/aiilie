@@ -30,6 +30,7 @@ except ImportError:
 from core.task_manager import TaskManager
 from services.indexer import CardIndexer
 from services.project_manager import ProjectManager
+from models.library import WorldContext, WorldContextBuilder
 logger = logging.getLogger(__name__)
 class ModelDispatcher:
     """
@@ -51,6 +52,7 @@ class ModelDispatcher:
         self.task_manager = task_manager
         self.indexer = indexer
         self.project_manager = project_manager
+        self.last_world_context: WorldContext | None = None
 
         self.local_url = local_ollama_url
         self.local_model = local_model
@@ -103,41 +105,55 @@ class ModelDispatcher:
             raise CloudServiceDisabledError("云端大模型")
         return await self._call_cloud_model(prompt, temperature=temperature, max_tokens=max_tokens)
 
-    async def _fetch_knowledge_context(self, bind_book_ids: list[str] | None) -> str:
-        """调用批次 2 知识库接口，根据绑定的书库 ID 提取热点卡片上下文"""
-        if not bind_book_ids:
-            return ""
-
+    async def _fetch_knowledge_context(
+        self, bind_book_ids: list[str] | None, query: str = ""
+    ) -> str:
+        """Build staged card/document context instead of concatenating a whole book."""
         try:
+            builder = WorldContextBuilder(self.indexer)
+            world_context = await builder.build(query=query, book_ids=bind_book_ids)
+            self.last_world_context = world_context
             contexts = []
             current_tokens = 0
             enable_truncate = config_manager.get("llm.enable_context_truncate", True)
             max_tokens = self.get_context_limit()
-            logger.info(f"动态探查模型上下文限额: {max_tokens} tokens")
-
-            for book_id in bind_book_ids:
-                # 简单复用 indexer 按书籍筛选的能力
-                cursor = await self.indexer.conn.execute(
-                    "SELECT card_id, summary, tags FROM cards WHERE source_book = ? LIMIT 20",
-                    (book_id,)
-                )
-                rows = await cursor.fetchall()
-                for row in rows:
-                    card_id = row[0]
-                    summary = row[1]
-
-                    # 简易 Token 估算：按 3.5 个字符一个 Token 算
-                    est_tokens = len(summary) // 3.5
-
-                    if enable_truncate and current_tokens + est_tokens > max_tokens:
-                        logger.warning(f"触发滑动窗口截断，卡片 {card_id} 因超出 Token 限制被淘汰。")
+            bounded_context = WorldContext(trace=list(world_context.trace))
+            for collection in (
+                world_context.must_include,
+                world_context.should_include,
+                world_context.optional_reference,
+            ):
+                for item in collection:
+                    content = str(item.get("content") or item.get("excerpt") or item.get("summary") or "")
+                    est_tokens = max(1, int(len(content) / 3.5))
+                    is_hard_rule = collection is world_context.must_include
+                    if enable_truncate and not is_hard_rule and current_tokens + est_tokens > max_tokens:
                         continue
-
-                    contexts.append(summary)
+                    target = (
+                        bounded_context.must_include if is_hard_rule
+                        else bounded_context.should_include
+                        if collection is world_context.should_include
+                        else bounded_context.optional_reference
+                    )
+                    target.append(item)
+                    contexts.append(content)
                     current_tokens += est_tokens
-
+            if enable_truncate and current_tokens > max_tokens and bounded_context.must_include:
+                logger.warning(
+                    "硬规则上下文超过模型预算：estimated_tokens=%s limit=%s；保留硬规则，普通上下文已截断。",
+                    current_tokens,
+                    max_tokens,
+                )
+                budget_event = {
+                    "stage": "context_budget",
+                    "estimated_tokens": current_tokens,
+                    "limit": max_tokens,
+                    "hard_rules_exceed_limit": True,
+                }
+                world_context.trace.append(budget_event)
+                bounded_context.trace.append(budget_event)
             if contexts:
-                return "【参考知识库设定】\n" + "\n".join(contexts) + "\n---\n"
+                return bounded_context.as_prompt()
             return ""
         except Exception as e:
             logger.warning("提取知识库上下文时发生异常, 将降级空上下文执行: %s", e)
@@ -227,7 +243,7 @@ class ModelDispatcher:
                     )
                     mode = "rapid"
 
-            context_prefix = await self._fetch_knowledge_context(bind_book_ids)
+            context_prefix = await self._fetch_knowledge_context(bind_book_ids, query=prompt)
             final_prompt = f"{context_prefix}{prompt}"
 
             # [预留抽象接口] 调度规则动态接入
@@ -425,6 +441,12 @@ class ModelDispatcher:
         与云端调用共享同一模型熔断器，避免降级路径逃逸熔断计数。
         """
         self._load_config()
+        if not self.local_url or not self.local_model:
+            raise AppError(
+                "未配置本地 Ollama 地址或模型名称",
+                error_code="OLLAMA_CONFIGURATION_MISSING",
+                status_code=503,
+            )
         payload = {
             "model": self.local_model,
             "prompt": prompt,
@@ -438,6 +460,8 @@ class ModelDispatcher:
         if not local_endpoint.endswith("/api/generate") and not local_endpoint.endswith("/api/chat"):
             local_endpoint = f"{local_endpoint.rstrip('/')}/api/generate"
 
+        # 配置错误应在熔断器之前返回明确诊断；配置缺失不应污染或被历史
+        # 模型网络故障的熔断状态遮蔽。
         model_circuit_breaker.check()
         try:
             async with httpx.AsyncClient() as client:
@@ -448,7 +472,9 @@ class ModelDispatcher:
                 )
                 resp.raise_for_status()
                 data = resp.json()
-                result = data.get("response", "")
+                if not isinstance(data, dict) or not isinstance(data.get("response"), str):
+                    raise ValueError("Ollama 返回结构异常：缺少 response 字符串")
+                result = data["response"]
                 model_circuit_breaker.record_success()
                 return result
         except Exception as e:

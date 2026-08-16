@@ -1,6 +1,11 @@
 # API 路由增强与意图识别
 enable_raw_keyword_intent: true
 
+# ── 运行环境 ──
+# 开发默认匿名兼容；生产部署请通过 AIILIE_RUNTIME_ENV=production 开启安全校验。
+runtime:
+  environment: development
+
 # ── 安全配置（安全加固新增） ──
 security:
   # 生产环境建议开启：开启后所有 /api/v1 接口强制要求 Bearer/API Token
