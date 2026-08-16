@@ -1,10 +1,75 @@
 @import "tailwindcss";
+
+/* ============================================================
+   主题系统(批次C):CSS 变量皮肤插件接口
+   - 通过 <html data-theme="name"> 切换皮肤
+   - registerTheme() 可在运行时注册新皮肤(前端插件预留)
+   - 外壳组件(App/LeftPanel/TopBar/RightPanel)已迁移到变量,
+     业务面板逐步迁移
+   ============================================================ */
+
 :root {
   --primary: #3b82f6;
+}
+
+/* 默认深色主题 */
+html[data-theme="dark"] {
+  --bg-app: #1e1e24;
+  --bg-panel: #121212;
+  --bg-panel-hover: #1e1e24;
+  --bg-active: #2a2a30;
+  --border-default: #2a2a30;
+  --border-soft: #1f1f25;
+  --text-high: #e5e7eb;
+  --text-mid: #9ca3af;
+  --text-low: #6b7280;
+  --accent: #6366f1;
+  --accent-soft: rgba(99, 102, 241, 0.25);
+}
+
+/* 木纹/羊皮纸主题 */
+html[data-theme="sepia"] {
+  --bg-app: #ece2d0;
+  --bg-panel: #f5eee0;
+  --bg-panel-hover: #e9dfca;
+  --bg-active: #d8c9aa;
+  --border-default: #c9b98f;
+  --border-soft: #ddd2ba;
+  --text-high: #3f3425;
+  --text-mid: #6b5d45;
+  --text-low: #8a7a5c;
+  --accent: #a3562c;
+  --accent-soft: rgba(163, 86, 44, 0.22);
+}
+
+/* 冷蓝灰/暮色主题 */
+html[data-theme="twilight"] {
+  --bg-app: #171a22;
+  --bg-panel: #10131a;
+  --bg-panel-hover: #1b2030;
+  --bg-active: #232a3a;
+  --border-default: #2b3140;
+  --border-soft: #1c2230;
+  --text-high: #cbd5e1;
+  --text-mid: #8896aa;
+  --text-low: #5b6a80;
+  --accent: #38bdf8;
+  --accent-soft: rgba(56, 189, 248, 0.25);
 }
 
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  background-color: #f3f4f6;
+  background-color: var(--bg-app);
+  color: var(--text-high);
 }
+
+/* 语义化工具类:组件用 th-* 即可随主题切换 */
+.th-app { background-color: var(--bg-app); }
+.th-panel { background-color: var(--bg-panel); }
+.th-panel-hover:hover { background-color: var(--bg-panel-hover); }
+.th-active { background-color: var(--bg-active); }
+.th-border { border-color: var(--border-default); }
+.th-text-high { color: var(--text-high); }
+.th-text-mid { color: var(--text-mid); }
+.th-text-low { color: var(--text-low); }

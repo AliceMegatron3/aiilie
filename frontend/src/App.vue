@@ -1,11 +1,11 @@
 <template>
-  <div class="flex flex-col h-screen bg-[#1e1e24] text-gray-200 font-sans overflow-hidden">
+  <div class="flex flex-col h-screen th-app th-text-high font-sans overflow-hidden">
     <!-- Top Bar -->
     <TopBar />
 
     <div class="flex flex-1 overflow-hidden">
       <!-- 左侧导航 (固定宽度，轻微磨砂质感) -->
-      <LeftPanel class="w-[260px] border-r border-[#2a2a30] bg-[#121212]/85 backdrop-blur-sm flex flex-col shrink-0 z-10 shadow-lg" />
+      <LeftPanel class="w-[260px] th-border th-panel/85 border-r backdrop-blur-sm flex flex-col shrink-0 z-10 shadow-lg" />
       
       <!-- 中间主工作区 -->
       <main class="flex-1 flex flex-col relative z-0">
@@ -52,9 +52,12 @@ import ToastContainer from './components/ui/ToastContainer.vue'
 import GovernancePanel from './components/GovernancePanel.vue'
 import SubconsciousStream from './components/SubconsciousStream.vue'
 import { useAppStore } from './stores/useAppStore'
+import { useThemeStore } from './stores/useThemeStore'
 import { startHealthPolling, stopHealthPolling } from './api'
 
 const appStore = useAppStore()
+const themeStore = useThemeStore()
+themeStore.init()
 const rightPanelWidth = ref(380)
 const governanceOpen = ref(false) // 默认宽度
 const isResizing = ref(false)

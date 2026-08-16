@@ -137,14 +137,40 @@
         </div>
       </section>
 
+      <!-- 外观/主题(批次C:皮肤插件接口) -->
+      <section class="bg-[#2a2a30] p-6 rounded-lg shadow border border-[#3f3f46]">
+        <h3 class="font-semibold text-lg text-white mb-2">外观 / 主题</h3>
+        <p class="text-sm text-gray-400 mb-3">切换界面皮肤。插件可注册自定义主题。</p>
+        <div class="flex gap-2 flex-wrap">
+          <button
+            v-for="t in themeList"
+            :key="t.name"
+            @click="switchTheme(t.name)"
+            class="px-4 py-2 rounded text-sm transition-colors"
+            :class="currentTheme === t.name ? 'bg-indigo-600 text-white' : 'bg-[#18181b] text-gray-300 hover:bg-gray-700'"
+          >{{ t.label }}</button>
+        </div>
+        <div v-if="themeNote" class="mt-2 text-xs text-gray-500">{{ themeNote }}</div>
+      </section>
+
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, reactive } from 'vue'
+import { ref, onMounted, reactive, computed } from 'vue'
 import { api } from '../../api'
 import { toast } from '../../utils/toast'
+import { useThemeStore } from '../../stores/useThemeStore'
+
+const themeStore = useThemeStore()
+const currentTheme = computed(() => themeStore.current)
+const themeList = computed(() => themeStore.available)
+const themeNote = ref('')
+const switchTheme = (name) => {
+  themeStore.setTheme(name)
+  themeNote.value = `已切换到「${name}」皮肤`
+}
 
 const isLoading = ref(true)
 const isSaving = ref(false)

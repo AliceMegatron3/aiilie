@@ -1,5 +1,5 @@
 <template>
-  <div class="h-full flex flex-col bg-[#121212]">
+  <div class="h-full flex flex-col th-panel">
     <!-- 顶部品牌占位 -->
     <div class="px-4 py-3 border-b border-[#1f1f25] shrink-0">
       <div class="text-sm font-bold text-gray-200">No.0 AI</div>
