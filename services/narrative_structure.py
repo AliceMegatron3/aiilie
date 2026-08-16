@@ -365,3 +365,48 @@ class NarrativeStructureService:
         # 超期(硬约束违约)优先,其次闲置章数最多
         items.sort(key=lambda i: (not i.overdue, -i.chapters_idle))
         return items
+
+    # ── 生成简报(结构层接入创作链路,阶段3集成) ────────────────
+
+    async def render_generation_brief(self, project_id: str, chapter_number: int) -> str:
+        """为第 N 章生成组合创作简报:已确认拍纲 + 节奏软目标 + 伏笔硬约束。
+
+        口径(讨论稿第七章/台账#23/#24):
+        - 拍纲仅在作者确认(beats_confirmed)后进入生成约束;
+        - 节奏预算为软目标(提示+事后对账,不硬灌);
+        - 伏笔到期/超期为硬约束(本章必须推进或回收);
+        - 无任何可用结构资产时返回空串(不干预)。
+        """
+        parts: list[str] = []
+        target = None
+        for c in await self.get_chapters(project_id):
+            if c.chapter_number == chapter_number:
+                target = c
+                break
+        if target is not None and target.beats_confirmed and target.beats:
+            beat_lines = [f"- {b.text}" for b in target.beats]
+            parts.append("【本章拍纲(已确认,按序展开)】\n" + "\n".join(beat_lines))
+            if target.budget is not None:
+                b = target.budget
+                note = (
+                    f"节奏软目标:冲突{b.conflict_intensity}/情感{b.emotion_intensity}"
+                    f"/节奏{b.tempo}"
+                )
+                if b.max_words:
+                    note += f"/篇幅上限约{b.max_words}字"
+                parts.append(note + "(软目标,可依创作弹性微调,事后对账)")
+        audits = await self.audit_threads(project_id, current_chapter=chapter_number)
+        due = [
+            a for a in audits
+            if a.deadline_chapter is not None and a.deadline_chapter <= chapter_number
+        ]
+        if due:
+            lines = [
+                f"- {a.description}(埋于第{a.planted_chapter}章,期限第{a.deadline_chapter}章"
+                + ("【已超期】" if a.overdue else "") + ")"
+                for a in due
+            ]
+            parts.append("【伏笔硬约束(本章必须推进或回收)】\n" + "\n".join(lines))
+        if not parts:
+            return ""
+        return "【叙事结构层·生成简报】\n" + "\n".join(parts) + "\n\n"

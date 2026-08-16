@@ -1,7 +1,9 @@
 # ⚠️ 安全提示：请勿在此文件明文保存 API 密钥。
 # 推荐通过环境变量 AIILIE_DEEPSEEK_API_KEY 注入，或使用下方 api_key 占位符。
 deepseek:
-  api_base: https://inferaiapi.com
+  # 中转站实测(20260816):OpenAI兼容端点必须带 /v1,否则请求打到网站首页返回HTML。
+  # 备用加速线路: https://api.inferaiapi.com/v1 (遇524超时可切换)
+  api_base: https://inferaiapi.com/v1
   api_key: ""  # 请通过环境变量 AIILIE_DEEPSEEK_API_KEY 注入，或在此填写（注意勿提交到版本库）
   model_name: deepseek-v4-flash
   enable_switch: true

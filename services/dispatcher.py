@@ -47,12 +47,17 @@ class ModelDispatcher:
         local_model: str = "qwen2.5:7b",
         cloud_api_key: str = "",
         cloud_base_url: str = "https://inferaiapi.com/v1",
-        cloud_model: str = "gpt-4o-mini"
+        cloud_model: str = "gpt-4o-mini",
+        lockfield_prefix_provider: Any = None,
     ) -> None:
         self.task_manager = task_manager
         self.indexer = indexer
         self.project_manager = project_manager
         self.last_world_context: WorldContext | None = None
+        # 阶段4集成A(讨论稿第六章):锁定场 must 集 → 稳定前缀。
+        # 异步回调 (project_id) -> str,由 bootstrap 注入(经 LockFieldService
+        # 物化,确定性排序);置于上下文最前=前缀缓存纪律(第九章建议#1)。
+        self.lockfield_prefix_provider = lockfield_prefix_provider
 
         self.local_url = local_ollama_url
         self.local_model = local_model
@@ -110,6 +115,7 @@ class ModelDispatcher:
         bind_book_ids: list[str] | None,
         query: str = "",
         card_filters: dict[str, Any] | None = None,
+        project_id: str | None = None,
     ) -> str:
         """Build staged card/document context instead of concatenating a whole book.
 
@@ -117,7 +123,20 @@ class ModelDispatcher:
         检索过滤条件，直接下推 WorldContextBuilder.build(**filters)。
         含 search_cards 不支持的键时整体忽略过滤条件并告警，保证卡片
         上下文不因脏过滤参数而整体丢失。
+
+        project_id（阶段4集成A）：锁定场 must 集作为最稳定前缀置于
+        上下文之首（环境锁定+前缀缓存命中率）；provider 缺失/异常时
+        静默降级为无锁定前缀，不阻断生成。
         """
+        lock_prefix = ""
+        if getattr(self, "lockfield_prefix_provider", None) is not None and project_id:
+            try:
+                lock_prefix = str(
+                    await self.lockfield_prefix_provider(project_id) or ""
+                )
+            except Exception as exc:
+                logger.warning("锁定场前缀获取失败(降级为空): %s", exc)
+                lock_prefix = ""
         try:
             builder = WorldContextBuilder(self.indexer)
             world_context = None
@@ -173,12 +192,14 @@ class ModelDispatcher:
                 }
                 world_context.trace.append(budget_event)
                 bounded_context.trace.append(budget_event)
-            if contexts:
-                return bounded_context.as_prompt()
-            return ""
+            world_prefix = bounded_context.as_prompt() if contexts else ""
+            if lock_prefix:
+                # 锁定场 must 集最前(稳定前缀),其后才是分层世界上下文
+                return lock_prefix + world_prefix
+            return world_prefix
         except Exception as e:
             logger.warning("提取知识库上下文时发生异常, 将降级空上下文执行: %s", e)
-            return ""
+            return lock_prefix
 
     async def dispatch(
         self,
@@ -269,7 +290,8 @@ class ModelDispatcher:
                     mode = "rapid"
 
             context_prefix = await self._fetch_knowledge_context(
-                bind_book_ids, query=prompt, card_filters=card_filters
+                bind_book_ids, query=prompt, card_filters=card_filters,
+                project_id=project_id,
             )
             final_prompt = f"{context_prefix}{prompt}"
 

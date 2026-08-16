@@ -178,3 +178,28 @@ async def test_api_router_mounted():
 
     paths = {r.path for r in api_router.routes}
     assert any("/lockfield/" in p for p in paths)
+
+
+# ── 集成A:锁定场must集→dispatcher稳定前缀 ─────────────────────
+
+@pytest.mark.asyncio
+async def test_dispatcher_lockfield_prefix_prepended():
+    from services.dispatcher import ModelDispatcher
+
+    async def provider(project_id):
+        return f"【LOCK:{project_id}】硬约束基线"
+
+    d = ModelDispatcher(None, None, None, lockfield_prefix_provider=provider)
+    ctx = await d._fetch_knowledge_context(None, query="", project_id="p1")
+    assert ctx.startswith("【LOCK:p1】")
+
+    # 无 provider → 不注入
+    d2 = ModelDispatcher(None, None, None)
+    assert "LOCK" not in await d2._fetch_knowledge_context(None, query="", project_id="p1")
+
+    # provider 异常 → 静默降级不阻断
+    async def boom(pid):
+        raise RuntimeError("锁定场炸了")
+
+    d3 = ModelDispatcher(None, None, None, lockfield_prefix_provider=boom)
+    assert "LOCK" not in await d3._fetch_knowledge_context(None, query="", project_id="p1")

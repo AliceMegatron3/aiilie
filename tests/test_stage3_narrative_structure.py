@@ -144,3 +144,64 @@ async def test_api_router_mounted():
 
     paths = {r.path for r in api_router.routes}
     assert any("/narrative/" in p for p in paths)
+
+
+# ── 集成B:生成简报(结构层→创作链路) ──────────────────────────
+
+@pytest.mark.asyncio
+async def test_render_generation_brief(svc):
+    vol = await svc.save_volume(Volume(project_id="p9", title="卷一"))
+    ch = ChapterOutline(
+        project_id="p9", volume_id=vol.volume_id, chapter_number=5,
+        outline_text="x", budget=PacingBudget(conflict_intensity=8, max_words=2000),
+    )
+    ch.beats = NarrativeStructureService.parse_outline("朝堂争执\n夜里独白").beats
+    await svc.save_chapter(ch)
+
+    # 未确认 → 拍纲不入简报(台账#23)
+    brief = await svc.render_generation_brief("p9", 5)
+    assert "拍纲" not in brief
+
+    await svc.confirm_beats(ch.chapter_id)
+    brief = await svc.render_generation_brief("p9", 5)
+    assert "拍纲" in brief and "朝堂争执" in brief
+    assert "软目标" in brief  # 预算为软提示(台账#24)
+    assert "伏笔硬约束" not in brief
+
+    # 到期伏笔 → 硬约束注入
+    await svc.upsert_thread(ForeshadowThread(
+        project_id="p9", description="玉玦来历", planted_chapter=3, deadline_chapter=5,
+    ))
+    brief = await svc.render_generation_brief("p9", 5)
+    assert "伏笔硬约束" in brief and "玉玦来历" in brief
+
+    # 无结构资产的项目 → 空串不干预
+    assert await svc.render_generation_brief("p-empty", 1) == ""
+
+
+@pytest.mark.asyncio
+async def test_global_router_injects_brief_via_chapter_option(svc, tmp_path):
+    from models.system import CommandRequest
+    from services.global_router import GlobalRouter
+
+    ch = ChapterOutline(
+        project_id="p-r", chapter_number=2, outline_text="x",
+        budget=PacingBudget(conflict_intensity=8),
+    )
+    ch.beats = NarrativeStructureService.parse_outline("粥棚冲突").beats
+    await svc.confirm_beats((await svc.save_chapter(ch)).chapter_id)
+    await svc.upsert_thread(ForeshadowThread(
+        project_id="p-r", description="旧伤复发", planted_chapter=1, deadline_chapter=2,
+    ))
+
+    router = GlobalRouter(None, None, None, None, None, db=None)
+    # db=None → 注入跳过(降级路径)
+    req = CommandRequest(command="写第二章", options={"chapter_number": 2}, project_id="p-r")
+    assert await router._inject_narrative_brief(req, "写第二章") == "写第二章"
+
+    # 复用同一 db:通过服务私有字段注入(避免完整装配)
+    router._db = svc.db
+    enriched = await router._inject_narrative_brief(req, "写第二章")
+    assert enriched.startswith("【叙事结构层·生成简报】")
+    assert "粥棚冲突" in enriched and "旧伤复发" in enriched
+    assert enriched.endswith("写第二章")

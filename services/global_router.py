@@ -91,6 +91,7 @@ class GlobalRouter:
         divergent_engine = None,
         novel_supervisor = None,
         indexer = None,
+        db = None,
     ) -> None:
         self.task_queue = task_queue
         self.system_monitor = system_monitor
@@ -110,7 +111,9 @@ class GlobalRouter:
         # 第十部分：多智能体小说创作总监督管（feature 开关关闭时为 None）
         self.novel_supervisor = novel_supervisor
         self.indexer = indexer
-        
+        # 阶段3集成B:叙事结构层生成简报依赖(为 None 时跳过简报注入)
+        self._db = db
+
         # Repetition block history: cmd_text -> list of timestamps
         self._command_history = {}
 
@@ -122,6 +125,35 @@ class GlobalRouter:
         history = self._command_history.get(cmd_text, [])
         if len(history) >= 2:
             raise ValueError("1 分钟内相同指令最多发送 2 次，请稍后再试。")
+
+    async def _inject_narrative_brief(self, req: CommandRequest, cmd_text: str) -> str:
+        """阶段3集成B:按 options.chapter_number 注入结构层生成简报(失败静默降级)。"""
+        raw_ch = None
+        try:
+            raw_ch = req.options.get("chapter_number") if req.options else None
+        except Exception:
+            raw_ch = None
+        if not raw_ch or self._db is None or not req.project_id:
+            return cmd_text
+        try:
+            chapter_number = int(raw_ch)
+        except (TypeError, ValueError):
+            return cmd_text
+        try:
+            from services.narrative_structure import NarrativeStructureService
+
+            nsvc = NarrativeStructureService(self._db)
+            await nsvc.initialize()
+            brief = await nsvc.render_generation_brief(req.project_id, chapter_number)
+            if brief:
+                logger.info(
+                    "[GlobalRouter] 已注入叙事结构层生成简报(第%d章, +%d 字符)",
+                    chapter_number, len(brief),
+                )
+                return brief + cmd_text
+        except Exception as exc:
+            logger.warning("[GlobalRouter] 生成简报注入失败(降级原始指令): %s", exc)
+        return cmd_text
         history.append(now)
         self._command_history[cmd_text] = history
 
@@ -451,6 +483,11 @@ class GlobalRouter:
                 "reason": "QUANTIZATION_LOCK_ACTIVE",
                 "message": "总督提示：当前算力已全部倾斜至书库量化，为保证速度，AI 创作通道暂时挂起。您可以继续在画板进行手工码字。"
             }
+
+        # 阶段3集成B(讨论稿第七章):命令携带 chapter_number 时,注入叙事结构层
+        # 生成简报(已确认拍纲+节奏软目标+伏笔硬约束)——结构资产进入创作链路。
+        # 任何失败仅告警降级,不影响原有创作路径。
+        cmd_text = await self._inject_narrative_brief(req, cmd_text)
 
         # a) 先获取批次4反馈沉淀的动态优化规则
         context_features = {

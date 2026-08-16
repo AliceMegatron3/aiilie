@@ -5,7 +5,7 @@ api/lockfield.py — 世界观锁定场 API(阶段4)
 口径(讨论稿20260816 第六章):偏离登记为"检测建议+作者确认"——
 propose 产生 PENDING,confirm 之后才入册生效。
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from api.deps import get_db, get_indexer, verify_token
@@ -15,7 +15,11 @@ from services.lockfield import LockFieldService
 router = APIRouter(dependencies=[Depends(verify_token)])
 
 
-def _service(db=Depends(get_db), indexer=Depends(get_indexer)) -> LockFieldService:
+def _service(request: Request, db=Depends(get_db), indexer=Depends(get_indexer)) -> LockFieldService:
+    """优先复用 bootstrap 单例(共享 must 集缓存);缺失时按请求构建。"""
+    svc = getattr(request.app.state, "lockfield_service", None)
+    if svc is not None:
+        return svc
     return LockFieldService(db, indexer)
 
 

@@ -233,6 +233,16 @@ async def setup_reflection(app: FastAPI) -> None:
     trigger.attach_miners(rule_extractor, skill_extractor, applier)
     app.state.reflection_trigger = trigger
 
+    # 阶段4集成A：锁定场服务单例（供 dispatcher 稳定前缀与 API 共享 must 集缓存）
+    try:
+        from services.lockfield import LockFieldService
+
+        lockfield_service = LockFieldService(db, indexer)
+        await lockfield_service.initialize()
+        app.state.lockfield_service = lockfield_service
+    except Exception as exc:
+        logger.warning("[Bootstrap] 锁定场服务初始化失败（跳过，不阻断）: %s", exc)
+
     # 【0-2 修复】将全局 LLM 客户端注入反思引擎，去除硬编码反思结论。
     # 未启用云端开关时 llm_client 为 None，ReflectionEngine 自动降级，不影响既有链路。
     try:
@@ -417,7 +427,33 @@ async def setup_quantification(app: FastAPI) -> None:
     await task_manager.start_workers(patched_dispatcher, concurrency=1)
     logger.info("[Bootstrap] 核心任务 Worker 已启动 (concurrency=1, 量化/文档学习分派)")
 
-    dispatcher = ModelDispatcher(task_manager, indexer, pm)
+    # 阶段4集成A（讨论稿第六章）：锁定场 must 集 → dispatcher 稳定前缀。
+    # 项目绑定锁定场时，史实硬约束卡以确定性顺序置于上下文最前
+    # （环境锁定 + DeepSeek 前缀缓存命中率）；无锁定场/异常时静默降级为空。
+    async def _lockfield_prefix(project_id: str | None) -> str:
+        if not project_id:
+            return ""
+        svc = getattr(app.state, "lockfield_service", None)
+        if svc is None:
+            return ""
+        config = await svc.get_field(project_id)
+        if config is None:
+            return ""
+        must = await svc.materialize_must_set(config)
+        if must.total == 0:
+            return ""
+        lines = [
+            f"- {card.get('content') or card.get('summary') or ''}".rstrip()
+            for card in must.cards
+        ]
+        lines = [ln for ln in lines if ln != "-"]
+        if not lines:
+            return ""
+        return "【世界观锁定·史实基线(硬约束,不可违背)】\n" + "\n".join(lines) + "\n\n"
+
+    dispatcher = ModelDispatcher(
+        task_manager, indexer, pm, lockfield_prefix_provider=_lockfield_prefix
+    )
     divergent_engine = DivergentEngine(dispatcher, indexer)
 
     app.state.registry = registry
@@ -508,6 +544,7 @@ async def setup_control_center(app: FastAPI) -> None:
         model_dispatcher=dispatcher,
         project_manager=pm,
         batch1_task_manager=batch1_task_manager,
+        db=db,
         load_estimator=load_estimator,
         divergent_engine=divergent_engine,
         indexer=indexer,
