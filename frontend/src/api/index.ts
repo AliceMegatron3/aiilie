@@ -245,6 +245,14 @@ export const api = {
     getDoc: (doc_id: string) => apiClient.get<ProjectDoc>(`/docs/${doc_id}`),
     /** 保存单个文档内容 */
     saveDoc: (doc_id: string, raw_content: string) => apiClient.put(`/docs/${doc_id}`, { raw_content }),
+    /** 登记某任务生成内容为待确认基线；不会产生作者信号 */
+    setGenerationBaseline: (doc_id: string, task_id: string, generated_text: string) =>
+      apiClient.post(`/docs/${doc_id}/generation-baseline`, { task_id, generated_text }),
+    /** 获取文档待确认生成基线 */
+    generationBaseline: (doc_id: string) => apiClient.get(`/docs/${doc_id}/generation-baseline`),
+    /** 作者明确确认定稿，才生成保留率信号并消费基线 */
+    authorConfirmDoc: (doc_id: string, final_text: string) =>
+      apiClient.post(`/docs/${doc_id}/author-confirm`, { final_text }),
     /** 重命名文档（功能补全） */
     renameDoc: (doc_id: string, doc_name: string) => apiClient.put(`/docs/${doc_id}/rename`, { doc_name }),
     /** 删除文档（含版本历史）（功能补全） */

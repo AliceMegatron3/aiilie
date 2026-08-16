@@ -48,6 +48,10 @@ async def list_behavior_plugins():
     }
 
 
+# 作者信号最低样本数:低于此值仅供参考,不得当作稳定结论(小样本硬约束)
+MIN_AUTHOR_SIGNAL_SAMPLES = 5
+
+
 @router.get("/plugins/behavior/stats")
 async def behavior_plugin_stats():
     runs = load_run_records()
@@ -57,6 +61,11 @@ async def behavior_plugin_stats():
     for pid, entry in retention.items():
         stats.setdefault(pid, {"plugin_id": pid, **entry})["author_retention"] = entry["author_retention"]
         stats[pid]["signal_tasks"] = entry["tasks"]
+    # 样本充足性标记:治理决策不应建立在小样本上
+    for entry in stats.values():
+        samples = int(entry.get("signal_tasks", 0) or 0)
+        entry["insufficient_sample"] = samples < MIN_AUTHOR_SIGNAL_SAMPLES
+        entry["min_samples_required"] = MIN_AUTHOR_SIGNAL_SAMPLES
     return {"stats": stats}
 
 

@@ -180,6 +180,34 @@ async def get_document(
 class UpdateDocRequest(BaseModel):
     raw_content: str
 
+class SetGenerationBaselineRequest(BaseModel):
+    task_id: str
+    generated_text: str
+
+class AuthorConfirmRequest(BaseModel):
+    final_text: str
+
+@router.post("/docs/{doc_id}/generation-baseline", summary="登记文档生成基线")
+async def set_generation_baseline(doc_id: str, req: SetGenerationBaselineRequest):
+    try:
+        from services.document_confirmation import set_generation_baseline as _set
+        return {"success": True, "baseline": _set(doc_id, req.task_id, req.generated_text)}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+@router.get("/docs/{doc_id}/generation-baseline", summary="获取待确认生成基线")
+async def get_generation_baseline(doc_id: str):
+    from services.document_confirmation import get_generation_baseline as _get
+    return {"baseline": _get(doc_id)}
+
+@router.post("/docs/{doc_id}/author-confirm", summary="作者确认文档定稿")
+async def author_confirm_document(doc_id: str, req: AuthorConfirmRequest):
+    try:
+        from services.document_confirmation import confirm_author_final
+        return {"success": True, "confirmation": confirm_author_final(doc_id, req.final_text)}
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
 @router.put("/docs/{doc_id}", summary="保存文档内容")
 async def update_document(
     doc_id: str,

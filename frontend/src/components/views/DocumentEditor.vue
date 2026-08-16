@@ -27,6 +27,13 @@
             :class="{ 'opacity-40 cursor-not-allowed': !dirty }"
             @click="saveNow"
           >保存</button>
+          <button
+            class="text-xs bg-emerald-900/60 hover:bg-emerald-800 text-emerald-300 px-3 py-1.5 rounded border border-emerald-800/60 transition-colors"
+            :disabled="dirty || !generationBaseline || confirming"
+            :class="{ 'opacity-40 cursor-not-allowed': dirty || !generationBaseline || confirming }"
+            :title="dirty ? '请先保存当前修改' : generationBaseline ? '确认后将记录作者保留率信号' : '当前没有待确认生成稿'"
+            @click="confirmAuthorFinal"
+          >{{ confirming ? '确认中...' : '确认定稿' }}</button>
           <!-- 版本历史下拉 -->
           <div class="relative">
             <button
@@ -162,6 +169,9 @@ const projectId = ref('')
 const voiceProfiles = ref({})
 const styleTags = ref([])
 
+const generationBaseline = ref(null)
+const confirming = ref(false)
+
 let autosaveTimer = null
 let lastSavedContent = ''
 
@@ -192,6 +202,7 @@ const loadDoc = async () => {
     dirty.value = false
     saveStatus.value = 'saved'
     await loadVersions()
+    await loadGenerationBaseline()
     // 补丁2：加载项目角色音色映射与风格标签（失败静默降级）
     if (projectId.value) {
       try {
@@ -221,6 +232,43 @@ const locateTextRange = ({ start, end }) => {
     toast.info(`已定位到文本位置 [${start}-${end}]`)
   }
   showGallery.value = false
+}
+
+/** 读取待确认生成基线；仅用于展示与确认按钮门控，不产生作者信号。 */
+const loadGenerationBaseline = async () => {
+  try {
+    const res = await api.projects.generationBaseline(props.docId)
+    generationBaseline.value = res.data?.baseline || null
+  } catch (e) {
+    generationBaseline.value = null
+  }
+}
+
+/** 作者明确确认定稿：唯一产生作者保留率信号的入口。 */
+const confirmAuthorFinal = async () => {
+  if (dirty.value) {
+    toast.warning('请先保存当前修改，再确认定稿')
+    return
+  }
+  if (!generationBaseline.value) {
+    toast.info('当前文档没有待确认的生成稿')
+    return
+  }
+  confirming.value = true
+  try {
+    const res = await api.projects.authorConfirmDoc(props.docId, content.value)
+    const retention = res.data?.confirmation?.signal?.retention
+    generationBaseline.value = null
+    toast.success(
+      retention == null
+        ? '已确认定稿'
+        : `已确认定稿，本次保留率 ${Math.round(retention * 100)}%`
+    )
+  } catch (e) {
+    toast.error('确认定稿失败：' + (e.response?.data?.detail || e.message))
+  } finally {
+    confirming.value = false
+  }
 }
 
 const loadVersions = async () => {
