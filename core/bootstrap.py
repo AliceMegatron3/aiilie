@@ -26,6 +26,7 @@ from fastapi import FastAPI
 
 from core.config_manager import config_manager
 from core.database import DatabaseManager
+from core.startup_stages import StartupStage, run_stages, validate_stage_order
 from core.task_manager import TaskManager
 from core.path_resolver import get_temp_root
 from core.security import is_cloud_enabled
@@ -801,41 +802,80 @@ async def initialize_app(app: FastAPI) -> None:
         logger.error("[Bootstrap] 启动配置校验失败: %s", "; ".join(configuration_problems))
         app.state.initialization_error = "startup_configuration_invalid"
         raise RuntimeError("启动配置校验失败，请检查生产环境安全配置")
-    await setup_base(app)
-    await setup_batch1_engine(app)
-    await setup_llm_client(app)
-    await setup_reflection(app)
-    await setup_quantification(app)
-    # 第十部分: 多智能体小说创作自学习闭环（依赖 indexer/applier/dispatcher，置于量化之后）
-    await setup_novel_multi_agent(app)
-    await setup_control_center(app)
-    # 架构整改 1.3：硬编码 Prompt 启动自检（仅告警，不阻塞启动）
-    try:
-        from core.prompt_audit import run_prompt_audit
+    stages = build_startup_stages()
+    order_problems = validate_stage_order(stages)
+    if order_problems:
+        # 装配顺序声明错误属编码缺陷,启动即暴露而非运行时才炸
+        logger.error("[Bootstrap] 启动阶段顺序声明有误: %s", "; ".join(order_problems))
+        app.state.initialization_error = "startup_stage_order_invalid"
+        raise RuntimeError("启动阶段顺序声明有误: " + "; ".join(order_problems))
 
-        run_prompt_audit()
-    except Exception as audit_exc:
-        logger.warning("[Bootstrap] Prompt 自检执行异常（不阻塞启动）: %s", audit_exc)
-    # 批次7：启动生成系统架构镜像（blueprint：architecture_map/api_spec/ui_flow）
-    try:
-        if config_manager.get_bool("feature.deep_thinking_enable", False):
-            from core.blueprint import blueprint_generator
+    degraded = await run_stages(app, stages)
+    app.state.degraded_stages = degraded
 
-            blueprint_generator.generate_all(app)
-    except Exception as blueprint_exc:
-        logger.warning("[Bootstrap] 架构镜像生成异常（不阻塞启动）: %s", blueprint_exc)
-    # 启动回收发散引擎等孤儿临时目录（只建不清理场景的兜底，按 mtime TTL 淘汰）
-    try:
-        from core.temp_manager import temp_manager as scoped_temp_manager
-
-        cleaned = scoped_temp_manager.cleanup_orphans(function_type="divergence")
-        if cleaned:
-            logger.info("[Bootstrap] 启动回收发散引擎孤儿临时目录 %d 个", cleaned)
-    except Exception as cleanup_exc:
-        logger.warning("[Bootstrap] 发散引擎临时目录清理异常（不阻塞启动）: %s", cleanup_exc)
     start_background_tasks(app)
     app.state.initialization_complete = True
-    logger.info("系统初始化完成，全部路由与底座处于 Standby 状态。")
+    if degraded:
+        logger.warning(
+            "系统初始化完成(部分增强阶段降级: %s),核心底座处于 Standby 状态。",
+            ", ".join(degraded),
+        )
+    else:
+        logger.info("系统初始化完成，全部路由与底座处于 Standby 状态。")
+
+
+# ── 可选收尾阶段(失败仅降级,不阻断启动) ─────────────────────────
+
+async def _stage_prompt_audit(app: FastAPI) -> None:
+    """架构整改 1.3：硬编码 Prompt 启动自检。"""
+    from core.prompt_audit import run_prompt_audit
+
+    run_prompt_audit()
+
+
+async def _stage_blueprint(app: FastAPI) -> None:
+    """批次7：生成系统架构镜像(architecture_map/api_spec/ui_flow)。"""
+    if not config_manager.get_bool("feature.deep_thinking_enable", False):
+        return
+    from core.blueprint import blueprint_generator
+
+    blueprint_generator.generate_all(app)
+
+
+async def _stage_orphan_cleanup(app: FastAPI) -> None:
+    """回收发散引擎等孤儿临时目录(按 mtime TTL 淘汰)。"""
+    from core.temp_manager import temp_manager as scoped_temp_manager
+
+    cleaned = scoped_temp_manager.cleanup_orphans(function_type="divergence")
+    if cleaned:
+        logger.info("[Bootstrap] 启动回收发散引擎孤儿临时目录 %d 个", cleaned)
+
+
+def build_startup_stages() -> list[StartupStage]:
+    """启动阶段声明表:顺序、失败语义与依赖关系一目可见。"""
+    return [
+        StartupStage("base", setup_base, note="DB + 持久化任务队列"),
+        StartupStage("batch1_engine", setup_batch1_engine, depends_on=("base",),
+                     note="拆分器→分段管线→合并器"),
+        StartupStage("llm_client", setup_llm_client, note="云端适配器(未启用则 None)"),
+        StartupStage("reflection", setup_reflection, depends_on=("base",),
+                     note="抽取器/应用器/索引器/锁定场"),
+        StartupStage("quantification", setup_quantification,
+                     depends_on=("base", "reflection", "batch1_engine"),
+                     note="量化核心+模型调度器+分段执行钩子"),
+        StartupStage("novel_multi_agent", setup_novel_multi_agent,
+                     depends_on=("quantification", "reflection"),
+                     note="多智能体闭环(feature 门控)"),
+        StartupStage("control_center", setup_control_center,
+                     depends_on=("quantification", "reflection"),
+                     note="状态机/队列/监控/全局路由"),
+        StartupStage("prompt_audit", _stage_prompt_audit, critical=False,
+                     note="硬编码 Prompt 自检"),
+        StartupStage("blueprint", _stage_blueprint, critical=False,
+                     note="架构镜像生成"),
+        StartupStage("orphan_cleanup", _stage_orphan_cleanup, critical=False,
+                     note="孤儿临时目录回收"),
+    ]
 
 
 async def shutdown_app(app: FastAPI) -> None:

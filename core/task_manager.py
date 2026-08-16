@@ -43,8 +43,16 @@ def _parse_task_dict(task_dict: dict[str, Any]) -> BasePipelineTask:
         return ReflectionTask(**task_dict)
     else:
         return CommandTask(**task_dict)
-class TaskManager:
-    """任务管理器，负责任务的提交、调度和持久化状态同步。"""
+class PersistentTaskQueue:
+    """持久化任务队列(语义名,优化报告§5.3)。
+
+    职责边界:只做「优先级排队 + 状态持久化 + 崩溃恢复」,不含任何业务;
+    业务由 start_workers 注入的 handler 按 task_type 分派。
+    与 TaskOrchestrator(services 分段管线)是两种不同机制,不应合并——
+    合并会造出上帝类;此处以语义命名消除同名混淆。
+
+    `TaskManager` 保留为向后兼容别名(见模块末尾)。
+    """
     def __init__(self, db_manager: DatabaseManager) -> None:
         self.db = db_manager
         # asyncio.PriorityQueue 存储元组: (priority, created_at, task_id, task)
@@ -174,3 +182,8 @@ class TaskManager:
     async def stop_workers(self) -> None:
         """兼容测试及旧调用方的 worker 停止入口。"""
         await self.stop()
+
+
+# 向后兼容别名:存量 9 处生产引用与测试继续可用 `TaskManager`,
+# 新代码请用语义名 PersistentTaskQueue(优化报告§5.3)。
+TaskManager = PersistentTaskQueue

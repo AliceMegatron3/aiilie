@@ -775,3 +775,9 @@ class TaskManager:
     def total_tasks(self) -> int:
         """内存中跟踪的任务总数。"""
         return len(self._tasks)
+
+
+# 语义名(优化报告§5.3):本类是「分段执行编排器」——指令→拆分→分段→合并。
+# 与 core.task_manager.PersistentTaskQueue(纯队列持久化)是两种机制,
+# 职责不同不予合并;以语义命名消除同名混淆。存量引用继续用 TaskManager。
+TaskOrchestrator = TaskManager

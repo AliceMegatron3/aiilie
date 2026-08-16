@@ -4,7 +4,8 @@ import logging
 from typing import Any
 from pathlib import Path
 from utils.resource_path import get_resource_path
-from services.prompt_template_manager import prompt_manager
+# 注意：services.prompt_template_manager 的引用已移入 render_call_plan_prompt 函数体内
+# 以消除 core→services 的模块级反向依赖（讨论稿20260816第二章差距盘点#6）。
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +65,9 @@ class PluginManager:
             "plugin_manifests": json.dumps(self.get_manifests(), ensure_ascii=False),
             "available_assets": json.dumps(context.get("available_assets", []), ensure_ascii=False),
         }
+        # 延迟 import：core 层不在模块加载时依赖 services 层
+        from services.prompt_template_manager import prompt_manager
+
         return prompt_manager.render("plugin_call_planner", variables)
 
     def deterministic_call_plan(self, context: dict[str, Any]) -> dict[str, Any]:

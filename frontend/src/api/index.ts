@@ -179,6 +179,18 @@ export const api = {
     /** 群像生活轨道清单 */
     ensembleTracks: (project_id: string) =>
       apiClient.get(`/ensemble/projects/${project_id}/tracks`),
+    /** 录入/更新角色生活轨道(含别名,供在场识别) */
+    upsertTrack: (project_id: string, payload: JsonObject) =>
+      apiClient.post(`/ensemble/projects/${project_id}/tracks`, payload),
+    /** 设定关系基线(情感账户余额) */
+    setRelationshipBaseline: (project_id: string, payload: JsonObject) =>
+      apiClient.post(`/ensemble/projects/${project_id}/relationships/baseline`, payload),
+    /** 登记事件挂账(清算时按深浅回摆) */
+    recordEventDelta: (project_id: string, payload: JsonObject) =>
+      apiClient.post(`/ensemble/projects/${project_id}/relationships/event-delta`, payload),
+    /** 录入角色声纹 */
+    upsertVoice: (project_id: string, payload: JsonObject) =>
+      apiClient.post(`/ensemble/projects/${project_id}/voices`, payload),
     /** 群像关系账本 */
     ensembleRelations: (project_id: string) =>
       apiClient.get(`/ensemble/projects/${project_id}/relationships`),

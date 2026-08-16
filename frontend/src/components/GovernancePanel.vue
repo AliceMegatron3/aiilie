@@ -103,6 +103,43 @@
           </span>
           <span class="ml-2 text-zinc-600">基线{{ r.baseline }} 挂账{{ r.active_event_deltas > 0 ? '+' : '' }}{{ r.active_event_deltas }}</span>
         </div>
+        <!-- 录入区:让群像数据可冷启动 -->
+        <div class="space-y-2 border-t border-[#2a2a30] pt-3">
+          <div class="text-[11px] text-zinc-500">录入角色轨道(别名用逗号分隔,供在场识别)</div>
+          <div class="grid grid-cols-4 gap-2 text-xs">
+            <input v-model="trackForm.character_id" placeholder="角色ID*" class="rounded border border-[#2a2a30] bg-[#121212] px-2 py-1 text-zinc-200" />
+            <input v-model="trackForm.name" placeholder="姓名" class="rounded border border-[#2a2a30] bg-[#121212] px-2 py-1 text-zinc-200" />
+            <input v-model="trackForm.aliases" placeholder="别名(玄德,刘皇叔)" class="rounded border border-[#2a2a30] bg-[#121212] px-2 py-1 text-zinc-200" />
+            <input v-model="trackForm.needs" placeholder="需求(立足之地)" class="rounded border border-[#2a2a30] bg-[#121212] px-2 py-1 text-zinc-200" />
+          </div>
+          <div class="grid grid-cols-3 gap-2 text-xs">
+            <input v-model="trackForm.position" placeholder="位置/处境" class="rounded border border-[#2a2a30] bg-[#121212] px-2 py-1 text-zinc-200" />
+            <input v-model="trackForm.attachments" placeholder="牵挂(母亲,义名)" class="rounded border border-[#2a2a30] bg-[#121212] px-2 py-1 text-zinc-200" />
+            <input v-model.number="trackForm.updated_chapter" type="number" min="1" placeholder="章号" class="rounded border border-[#2a2a30] bg-[#121212] px-2 py-1 text-zinc-200" />
+          </div>
+          <div class="grid grid-cols-3 gap-2 text-xs">
+            <input v-model="voiceForm.character_id" placeholder="声纹角色ID" class="rounded border border-[#2a2a30] bg-[#121212] px-2 py-1 text-zinc-200" />
+            <input v-model="voiceForm.speech_habits" placeholder="说话习惯" class="rounded border border-[#2a2a30] bg-[#121212] px-2 py-1 text-zinc-200" />
+            <input v-model="voiceForm.decision_style" placeholder="决策风格" class="rounded border border-[#2a2a30] bg-[#121212] px-2 py-1 text-zinc-200" />
+          </div>
+          <div class="flex gap-2">
+            <button class="rounded bg-[#2a2a30] px-3 py-1 text-xs text-zinc-200 hover:bg-[#3a3a40]" @click="saveTrack">保存轨道</button>
+            <button class="rounded bg-[#2a2a30] px-3 py-1 text-xs text-zinc-200 hover:bg-[#3a3a40]" @click="saveVoice">保存声纹</button>
+          </div>
+          <div class="text-[11px] text-zinc-500">设定关系基线 / 登记事件挂账</div>
+          <div class="grid grid-cols-4 gap-2 text-xs">
+            <input v-model="relForm.character_a" placeholder="角色A" class="rounded border border-[#2a2a30] bg-[#121212] px-2 py-1 text-zinc-200" />
+            <input v-model="relForm.character_b" placeholder="角色B" class="rounded border border-[#2a2a30] bg-[#121212] px-2 py-1 text-zinc-200" />
+            <input v-model.number="relForm.baseline" type="number" min="-100" max="100" placeholder="基线(-100..100)" class="rounded border border-[#2a2a30] bg-[#121212] px-2 py-1 text-zinc-200" />
+            <button class="rounded bg-[#2a2a30] px-2 py-1 text-zinc-200 hover:bg-[#3a3a40]" @click="saveBaseline">设基线</button>
+          </div>
+          <div class="grid grid-cols-4 gap-2 text-xs">
+            <input v-model="deltaForm.event_id" placeholder="事件ID" class="rounded border border-[#2a2a30] bg-[#121212] px-2 py-1 text-zinc-200" />
+            <input v-model.number="deltaForm.delta" type="number" placeholder="挂账(+/-)" class="rounded border border-[#2a2a30] bg-[#121212] px-2 py-1 text-zinc-200" />
+            <input v-model="deltaForm.reason" placeholder="事由" class="rounded border border-[#2a2a30] bg-[#121212] px-2 py-1 text-zinc-200" />
+            <button class="rounded bg-[#2a2a30] px-2 py-1 text-zinc-200 hover:bg-[#3a3a40]" @click="saveDelta">登记挂账</button>
+          </div>
+        </div>
         <div class="flex gap-2 border-t border-[#2a2a30] pt-3 text-xs">
           <input v-model="ensForm.event_id" placeholder="事件ID(清算用)" class="flex-1 rounded border border-[#2a2a30] bg-[#121212] px-2 py-1 text-zinc-200" />
           <button class="rounded bg-amber-700/80 px-3 py-1 text-white hover:bg-amber-600" @click="closeEvent">事件清算(按深浅回摆)</button>
@@ -140,6 +177,12 @@ const reminders = ref<string[]>([])
 const arcResult = ref<any>(null)
 const arcForm = ref({ project_id: '', volume_id: '', pattern_id: '', n_chapters: 12 })
 const ensForm = ref({ project_id: '', event_id: '' })
+const trackForm = ref({ character_id: '', name: '', aliases: '', needs: '', position: '', attachments: '', updated_chapter: 1 })
+const voiceForm = ref({ character_id: '', speech_habits: '', decision_style: '' })
+const relForm = ref({ character_a: '', character_b: '', baseline: 0 })
+const deltaForm = ref({ event_id: '', delta: 0, reason: '' })
+
+const splitList = (v: string) => String(v || '').split(/[,，]/).map(s => s.trim()).filter(Boolean)
 
 const fmt = (v: any) => (v == null ? '—' : `${Math.round(v * 100)}%`)
 const statusClass = (s: string) =>
@@ -213,6 +256,56 @@ async function loadRelations() {
     const res = await api.governance.ensembleTracks(ensForm.value.project_id)
     tracks.value = res.data?.tracks ?? []
   } catch { tracks.value = [] }
+}
+async function saveTrack() {
+  const pid = ensForm.value.project_id
+  if (!pid || !trackForm.value.character_id) return alert('请填写项目ID与角色ID')
+  try {
+    await api.governance.upsertTrack(pid, {
+      character_id: trackForm.value.character_id,
+      name: trackForm.value.name,
+      aliases: splitList(trackForm.value.aliases),
+      needs: splitList(trackForm.value.needs),
+      attachments: splitList(trackForm.value.attachments),
+      position: trackForm.value.position,
+      updated_chapter: trackForm.value.updated_chapter || 1,
+    })
+    await loadRelations()
+  } catch (e: any) {
+    alert(e?.response?.data?.detail ?? '轨道保存失败')
+  }
+}
+async function saveVoice() {
+  const pid = ensForm.value.project_id
+  if (!pid || !voiceForm.value.character_id) return alert('请填写项目ID与角色ID')
+  try {
+    await api.governance.upsertVoice(pid, { ...voiceForm.value })
+  } catch (e: any) {
+    alert(e?.response?.data?.detail ?? '声纹保存失败')
+  }
+}
+async function saveBaseline() {
+  const pid = ensForm.value.project_id
+  const { character_a, character_b, baseline } = relForm.value
+  if (!pid || !character_a || !character_b) return alert('请填写项目ID与两个角色')
+  try {
+    await api.governance.setRelationshipBaseline(pid, { character_a, character_b, baseline })
+    await loadRelations()
+  } catch (e: any) {
+    alert(e?.response?.data?.detail ?? '基线设定失败')
+  }
+}
+async function saveDelta() {
+  const pid = ensForm.value.project_id
+  const { character_a, character_b } = relForm.value
+  const { event_id, delta, reason } = deltaForm.value
+  if (!pid || !character_a || !character_b || !event_id) return alert('请填写项目/两个角色/事件ID')
+  try {
+    await api.governance.recordEventDelta(pid, { character_a, character_b, event_id, delta, reason })
+    await loadRelations()
+  } catch (e: any) {
+    alert(e?.response?.data?.detail ?? '挂账登记失败')
+  }
 }
 async function closeEvent() {
   const { project_id, event_id } = ensForm.value
