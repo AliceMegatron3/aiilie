@@ -2,15 +2,25 @@
   <div class="h-full w-full flex flex-col p-8 bg-[#1e1e24] text-gray-200 overflow-y-auto">
     <div class="flex justify-between items-center mb-6">
       <h2 class="text-2xl font-bold">系统设置</h2>
-      <button 
-        @click="saveSettings" 
-        class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded shadow transition-colors flex items-center gap-2"
-        :disabled="isSaving"
-      >
-        <span v-if="isSaving">保存中...</span>
-        <span v-else>保存配置</span>
-      </button>
+      <div class="flex items-center gap-2">
+        <button
+          @click="testConnectivity"
+          class="bg-[#2a2a30] hover:bg-gray-600 text-gray-300 px-4 py-2 rounded shadow transition-colors"
+          :disabled="isPinging"
+        >
+          {{ isPinging ? '检测中...' : '连通性检测' }}
+        </button>
+        <button
+          @click="saveSettings"
+          class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded shadow transition-colors flex items-center gap-2"
+          :disabled="isSaving"
+        >
+          <span v-if="isSaving">保存中...</span>
+          <span v-else>保存配置</span>
+        </button>
+      </div>
     </div>
+    <div v-if="pingResult" class="mb-3 text-xs px-3 py-2 rounded bg-[#121212] border border-[#2a2a30] text-gray-300">{{ pingResult }}</div>
 
     <div v-if="isLoading" class="text-gray-400">加载配置中...</div>
 
@@ -138,6 +148,8 @@ import { toast } from '../../utils/toast'
 
 const isLoading = ref(true)
 const isSaving = ref(false)
+const isPinging = ref(false)
+const pingResult = ref('')
 const errors = reactive({})
 
 const form = reactive({
@@ -208,6 +220,27 @@ const saveSettings = async () => {
     toast.error('保存失败，请检查网络或后台服务。')
   } finally {
     isSaving.value = false
+  }
+}
+
+// 批次B:云端模型连通性检测
+const testConnectivity = async () => {
+  isPinging.value = true
+  pingResult.value = ''
+  try {
+    const res = await api.settings.pingDeepseek()
+    const data = res.data || {}
+    if (data.status === 'ok') {
+      const keyStatus = data.has_api_key ? '已配置密钥' : '未配置密钥'
+      const enStatus = data.is_enabled ? '已启用' : '未启用'
+      pingResult.value = `连通正常 · ${data.model_name || '模型'} @ ${data.api_base || ''} · ${keyStatus} · ${enStatus}`
+    } else {
+      pingResult.value = `配置异常: ${data.message || '未知'}`
+    }
+  } catch (e) {
+    pingResult.value = `无法连接后端: ${e?.message || '失败'}`
+  } finally {
+    isPinging.value = false
   }
 }
 

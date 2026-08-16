@@ -448,6 +448,18 @@ export const api = {
     getFeatures: () => apiClient.get('/settings/features'),
     /** 保存系统功能开关 */
     saveFeatures: (data: JsonObject) => apiClient.post('/settings/features', data),
+    /** DeepSeek 配置连通性检测 */
+    pingDeepseek: () => apiClient.get('/llm/deepseek/ping'),
+    /** 单轮推理调试 */
+    debugChat: (prompt: string, temperature: number = 0.5, max_tokens: number = 512) =>
+      apiClient.post('/llm/deepseek/chat', { prompt, temperature, max_tokens }),
+  },
+  // ==========================================
+  // 模型凭证 (models 域)
+  // ==========================================
+  models: {
+    /** 嗅探本地 Ollama 模型 */
+    ollama: () => apiClient.get('/models/ollama'),
   },
 
   // ==========================================
