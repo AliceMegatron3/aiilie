@@ -20,7 +20,7 @@ from core.response import ok
 from services.priority_queue import PriorityTaskQueue
 from services.system_monitor import SystemMonitor
 from services.global_router import GlobalRouter
-from api.deps import _state, verify_token
+from api.deps import _state, get_db, verify_token
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +65,34 @@ async def execute_command(
     except Exception as e:
         logger.error("[API] 统一指令网关异常崩溃: %s", e)
         raise HTTPException(status_code=500, detail="中枢系统路由失败，请查看后台日志。")
+
+
+@router.get("/command/{task_id}/result", summary="按任务ID拉取创作结果(兜底查询)")
+async def get_command_result(
+    task_id: str,
+    db=Depends(get_db),
+) -> dict[str, Any]:
+    """结果兜底查询(批次1)。
+
+    异步创作经 WebSocket 推送结果;本端点解耦推送——作者端重连后
+    可主动拉取,避免\"返回 queued 但查不到结果\"的体验断裂。
+    """
+    record = await db.get_chat_history_by_task(task_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="该任务尚无对话记录(可能仍在执行或未落库)")
+    result = record.get("ai_result", "")
+    empty = not (result or "").strip()
+    if empty:
+        logger.warning("[System] 兜底查询发现空产出 task=%s", task_id)
+    return {
+        "task_id": task_id,
+        "session_id": record.get("session_id"),
+        "project_id": record.get("project_id"),
+        "user_query": record.get("user_query"),
+        "ai_result": result,
+        "empty_result": empty,
+        "timestamp": record.get("timestamp"),
+    }
 
 
 @router.get("/status", summary="监控大盘：拉取系统级健康探针及状态")

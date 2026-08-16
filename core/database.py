@@ -564,6 +564,21 @@ class DatabaseManager:
         columns = [desc[0] for desc in cursor.description]
         return [dict(zip(columns, row)) for row in rows]
 
+    async def get_chat_history_by_task(self, task_id: str) -> dict[str, Any] | None:
+        """按 task_id 查单条对话记录(chat_history.task_id 为主键)。
+
+        批次1(结果兜底查询):作者端 WebSocket 断连后可主动拉取结果。
+        """
+        cursor = await self.conn.execute(
+            "SELECT * FROM chat_history WHERE task_id=? LIMIT 1",
+            (task_id,)
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            return None
+        columns = [desc[0] for desc in cursor.description]
+        return dict(zip(columns, row))
+
     # ── 模型凭证 CRUD ─────────────────────────────────────────────────
     async def insert_model_credential(self, cred_data: dict[str, Any]) -> None:
         now = datetime.now(timezone.utc).isoformat()

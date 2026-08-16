@@ -683,6 +683,15 @@ class GlobalRouter:
                     except Exception as db_err:
                         logger.error("[GlobalRouter] 持久化对话记录失败: %s", db_err)
 
+                    # 批次1：空产出告警——模型返回空/空白时主动告警，
+                    # 避免作者只见空白无从判断(实测中转站超时会静默产出空)。
+                    if not (result or "").strip():
+                        logger.warning(
+                            "[GlobalRouter] 创作产出为空(task=%s, mode=%s, 指令前40字=%r)。"
+                            "可能因模型超时/未配置本地与云端模型导致静默失败。",
+                            task_id, mode, cmd_text[:40],
+                        )
+
                     if req.options.get("insert_to_doc") and req.project_id and self.project_manager:
                         from models.project import ProjectDoc
                         new_doc = ProjectDoc(
