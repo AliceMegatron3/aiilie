@@ -121,6 +121,125 @@ class BehaviorPluginRegistry:
 behavior_plugin_registry = BehaviorPluginRegistry()
 
 
+# ── P2:运行落账与统计 ────────────────────────────────────────
+
+def _default_runs_path():
+    from core.path_resolver import get_app_data_dir
+    return get_app_data_dir() / "behavior_plugin_runs.jsonl"
+
+
+def persist_run_records(
+    records: list[BehaviorPluginRunRecord], history_path=None
+) -> None:
+    """打磨运行记录追加写入 JSONL(失败仅告警,不阻断创作)。"""
+    if not records:
+        return
+    import json as _json
+
+    path = history_path or _default_runs_path()
+    try:
+        from pathlib import Path
+
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as f:
+            for rec in records:
+                f.write(_json.dumps(rec.model_dump(), ensure_ascii=False) + "\n")
+    except Exception as exc:
+        logger.warning("[BehaviorPlugins] 运行落账失败(不阻断): %s", exc)
+
+
+def load_run_records(history_path=None) -> list[BehaviorPluginRunRecord]:
+    path = history_path or _default_runs_path()
+    from pathlib import Path
+
+    path = Path(path)
+    if not path.exists():
+        return []
+    import json as _json
+
+    out = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            out.append(BehaviorPluginRunRecord.model_validate(_json.loads(line)))
+        except Exception:
+            continue
+    return out
+
+
+def aggregate_stats(records: list[BehaviorPluginRunRecord]) -> dict[str, dict]:
+    """按插件聚合:触发数/验收数/验收率/均耗时——学习体的真信号原料。"""
+    stats: dict[str, dict] = {}
+    for rec in records:
+        entry = stats.setdefault(rec.plugin_id, {
+            "plugin_id": rec.plugin_id, "runs": 0, "triggered": 0,
+            "accepted": 0, "acceptance_rate": 0.0, "avg_duration_ms": 0,
+        })
+        entry["runs"] += 1
+        if rec.triggered:
+            entry["triggered"] += 1
+        if rec.accepted:
+            entry["accepted"] += 1
+            entry["avg_duration_ms"] += rec.duration_ms
+    for entry in stats.values():
+        if entry["accepted"]:
+            entry["avg_duration_ms"] = int(entry["avg_duration_ms"] / entry["accepted"])
+        entry["acceptance_rate"] = round(
+            entry["accepted"] / entry["triggered"], 4
+        ) if entry["triggered"] else 0.0
+    return stats
+
+
+def _default_overrides_path():
+    from core.path_resolver import get_app_data_dir
+    return get_app_data_dir() / "behavior_plugin_overrides.json"
+
+
+def save_registry_overrides(registry: BehaviorPluginRegistry, path=None) -> None:
+    """治理状态覆盖持久化(重启后恢复 active/gray/retired 决定)。"""
+    import json as _json
+    from pathlib import Path
+
+    target = Path(path or _default_overrides_path())
+    try:
+        overrides = {
+            pid: {"status": s.status.value, "gray_percent": s.gray_percent}
+            for pid, s in registry._plugins.items()
+            if s.status != PluginStatus.CANDIDATE or s.gray_percent
+        }
+        # 只保留与出厂态不同的件,减小漂移面
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(_json.dumps(overrides, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as exc:
+        logger.warning("[BehaviorPlugins] 治理覆盖持久化失败: %s", exc)
+
+
+def load_registry_overrides(registry: BehaviorPluginRegistry, path=None) -> None:
+    """启动时恢复治理覆盖(文件缺失/损坏静默跳过)。"""
+    import json as _json
+    from pathlib import Path
+
+    source = Path(path or _default_overrides_path())
+    if not source.exists():
+        return
+    try:
+        overrides = _json.loads(source.read_text(encoding="utf-8"))
+        for pid, ov in overrides.items():
+            spec = registry.get(pid)
+            if spec is None or not isinstance(ov, dict):
+                continue
+            try:
+                spec.status = PluginStatus(ov.get("status", spec.status.value))
+                spec.gray_percent = int(ov.get("gray_percent", 0) or 0)
+            except ValueError:
+                continue
+    except Exception as exc:
+        logger.warning("[BehaviorPlugins] 治理覆盖恢复失败: %s", exc)
+
+
 def _render_pass_prompt(spec: BehaviorPluginSpec, draft: str) -> str:
     """渲染打磨 prompt:模板→内置人设兜底。"""
     try:

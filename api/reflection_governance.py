@@ -163,3 +163,70 @@ async def reject_skill_candidate(candidate_id: str, payload: SkillReviewRequest)
         return {"status": status, "candidate_id": candidate_id}
     except SkillGovernanceError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
+
+# ── P2:技能治理生命周期端点(原有孤岛方法通电) ──────────────────
+
+class SkillGrayscaleRequest(BaseModel):
+    percent: int = Field(ge=1, le=100)
+
+
+class SkillRollbackRequest(BaseModel):
+    target_version: int = Field(ge=1)
+
+
+@router.get("/reflection/skills/candidates")
+async def list_skill_candidates(status: str | None = None):
+    """候选清单(可按状态过滤:PENDING/MANUAL_APPROVED/GRAYSCALE/FULL/REJECTED)。"""
+    return {"candidates": _skill_governance.list_candidates(status=status)}
+
+
+@router.post("/reflection/skills/candidates/{candidate_id}/promote")
+async def promote_skill_candidate(candidate_id: str):
+    """人工批准后版本化晋升(MANUAL_APPROVED→版本化)。"""
+    try:
+        version = _skill_governance.promote(candidate_id, operator="author")
+        return {"candidate_id": candidate_id, "version": version}
+    except SkillGovernanceError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+@router.post("/reflection/skills/candidates/{candidate_id}/grayscale")
+async def start_skill_grayscale(candidate_id: str, payload: SkillGrayscaleRequest):
+    """灰度发布:按比例在部分任务上生效(P2灰度消费的治理侧)。"""
+    try:
+        _skill_governance.start_grayscale(candidate_id, percent=payload.percent)
+        return {"candidate_id": candidate_id, "percent": payload.percent, "status": "GRAYSCALE"}
+    except SkillGovernanceError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+@router.post("/reflection/skills/candidates/{candidate_id}/full")
+async def promote_skill_full(candidate_id: str):
+    """灰度验证通过,全量转正。"""
+    try:
+        _skill_governance.promote_full(candidate_id)
+        return {"candidate_id": candidate_id, "status": "FULL"}
+    except SkillGovernanceError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+@router.post("/reflection/skills/candidates/{candidate_id}/stop-gray")
+async def stop_skill_grayscale(candidate_id: str):
+    """中止灰度(回退至未放量状态)。"""
+    try:
+        _skill_governance.stop_grayscale(candidate_id)
+        return {"candidate_id": candidate_id, "status": "STOPPED"}
+    except SkillGovernanceError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+@router.post("/reflection/skills/candidates/{candidate_id}/rollback")
+async def rollback_skill_candidate(candidate_id: str, payload: SkillRollbackRequest):
+    """版本回滚至指定历史版本。"""
+    try:
+        version = _skill_governance.rollback(
+            candidate_id, target_version=payload.target_version, operator="author"
+        )
+        return {"candidate_id": candidate_id, "version": version}
+    except SkillGovernanceError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))

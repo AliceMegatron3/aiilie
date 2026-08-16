@@ -479,6 +479,9 @@ class NovelSupervisor:
                             accumulated_draft, self.dispatcher,
                             TriggerContext(task_id=task_id),
                         )
+                        # P2:运行落账(效果统计原料,失败不阻断)
+                        from services.behavior_plugins import persist_run_records
+                        persist_run_records(polish_records)
                     except Exception as exc:
                         logger.warning("[NovelSupervisor] 打磨链异常(跳过,不阻断): %s", exc)
 
