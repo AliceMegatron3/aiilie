@@ -466,6 +466,22 @@ class NovelSupervisor:
                     "ooc_warnings": role_ooc,
                     "error_count": role_errors,
                 })
+            # P1(专精能手施工图):行为插件编辑通行——精修链末端打磨。
+            # 验收不过自动回退通行前文本(保底不伤稿);开关默认开,异常不阻断创作。
+            polish_records: list = []
+            if accumulated_draft and self.dispatcher is not None:
+                if config_manager.get_bool("feature.behavior_plugins_enable", True):
+                    try:
+                        from models.behavior_plugin import TriggerContext
+                        from services.behavior_plugins import apply_polish_passes
+
+                        accumulated_draft, polish_records = await apply_polish_passes(
+                            accumulated_draft, self.dispatcher,
+                            TriggerContext(task_id=task_id),
+                        )
+                    except Exception as exc:
+                        logger.warning("[NovelSupervisor] 打磨链异常(跳过,不阻断): %s", exc)
+
             # 3. 汇总结果（叠加发散引擎可选）
             total_duration_ms = int(time.time() * 1000) - start_ms
             total_calls = sum(s.get("calls", 0) for s in agent_stats)
@@ -522,6 +538,10 @@ class NovelSupervisor:
                 "used_rule_ids": list(self._active_rule_ids),
                 "used_skill_ids": list(self._active_skill_ids),
                 "circuit_break": circuit_break,
+                "polish": [
+                    {"plugin_id": r.plugin_id, "accepted": r.accepted, "reason": r.reason}
+                    for r in polish_records
+                ],
             }
         except Exception as exc:
             logger.exception("[NovelSupervisor] 创作执行异常")

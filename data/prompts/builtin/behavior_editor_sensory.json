@@ -1,0 +1,16 @@
+{
+  "template_id": "behavior_editor_sensory",
+  "name": "感官细节增密通行",
+  "category": "behavior_plugin",
+  "version": "1.0.0",
+  "template_text": "你是长篇小说的场景编辑。在不推进情节的前提下,于关键场景增补克制而具体的感官细节(视、听、嗅、触、体感),优先落在人物所处的环境锚点上(物价、器物、天候、地物),让场景可感而不堆砌。每处增补不超过两句。直接输出修改后的完整正文,不要任何解释或JSON。\n\n文稿:\n{{ content }}",
+  "variables": [
+    "content"
+  ],
+  "tags": [
+    "creation",
+    "behavior_plugin",
+    "editor_pass"
+  ],
+  "is_builtin": true
+}

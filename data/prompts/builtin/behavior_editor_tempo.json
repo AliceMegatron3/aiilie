@@ -1,0 +1,16 @@
+{
+  "template_id": "behavior_editor_tempo",
+  "name": "节拍整饬通行",
+  "category": "behavior_plugin",
+  "version": "1.0.0",
+  "template_text": "你是长篇小说的节拍编辑。通读文稿,只调整叙事节拍:句长节奏的张弛、段落密度的松紧、场景切换处的呼吸感;句式起伏要对位本章的节奏目标。不增删情节、不改人名设定、不换叙述视角。学手法不堆修辞。直接输出修改后的完整正文,不要任何解释或JSON。\n\n文稿:\n{{ content }}",
+  "variables": [
+    "content"
+  ],
+  "tags": [
+    "creation",
+    "behavior_plugin",
+    "editor_pass"
+  ],
+  "is_builtin": true
+}
