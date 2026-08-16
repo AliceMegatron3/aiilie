@@ -2,6 +2,7 @@ from fastapi import APIRouter
 from api.experience import router as experience_router
 from api.library import router as library_router
 from api.llm_debug import router as llm_debug_router
+from api.lockfield import router as lockfield_router
 from api.models import router as models_router
 from api.narrative import router as narrative_router
 from api.orchestrator import router as orchestrator_router
@@ -25,6 +26,7 @@ api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(experience_router)
 api_router.include_router(library_router)
 api_router.include_router(llm_debug_router)
+api_router.include_router(lockfield_router)
 api_router.include_router(models_router)
 api_router.include_router(narrative_router)
 api_router.include_router(orchestrator_router)
