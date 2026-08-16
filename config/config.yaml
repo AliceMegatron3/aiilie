@@ -94,6 +94,9 @@ feature:
   # ── P1(专精能手施工图):行为插件编辑通行总开关 ──
   # 关闭后 supervisor 精修链不再执行打磨通行(回退纯专家链)
   behavior_plugins_enable: true
+  # ── 批次4:空闲索引器总开关 ──
+  # 关闭后完全不产生索引产物(摘要卡/矛盾巡检/实体初筛全部停)
+  idle_index_enable: true
   # ── 第十部分：多智能体小说创作 总开关（总控）──
   # 关闭后多智能体自学习全部停止，多Agent功能不受影响（回退原创作链路）
   novel_multi_agent_enable: false

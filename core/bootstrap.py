@@ -598,6 +598,43 @@ async def _emotion_archive_worker(app: FastAPI) -> None:
             logger.warning("[EmotionArchive] 帧归档巡检异常: %s", exc)
 
 
+# 批次4:空闲索引器轮询间隔
+_IDLE_INDEX_INTERVAL = 300  # 5 分钟
+
+async def _idle_indexer_worker(app: FastAPI) -> None:
+    """批次4:空闲索引后台协程。
+
+    静默期(文档变更后5分钟)+系统空闲时,把变更文档蒸馏为摘要卡/
+    实体初筛/矛盾巡检,产物一律 draft 等待作者审核。开关
+    feature.idle_index_enable 关闭时整周期跳过,不产生任何文件。
+    """
+    while True:
+        try:
+            await asyncio.sleep(_IDLE_INDEX_INTERVAL)
+            if not config_manager.get_bool("feature.idle_index_enable", True):
+                continue
+            pm = getattr(app.state, "project_manager", None)
+            if pm is None:
+                continue
+            from services.idle_indexer import is_system_idle, run_idle_index_cycle
+
+            if not await is_system_idle(getattr(app.state, "batch1_task_manager", None)):
+                logger.info("[IdleIndexer] 系统忙碌,本次跳过空闲索引")
+                continue
+            result = await run_idle_index_cycle(
+                pm,
+                indexer=getattr(app.state, "indexer", None),
+                ensemble_svc=getattr(app.state, "ensemble_service", None),
+            )
+            if result["indexed"]:
+                logger.info("[IdleIndexer] 本次索引 %d 个文档(跳过 %d, 失败 %d)",
+                            result["indexed"], result["skipped"], result["failures"])
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("[IdleIndexer] 空闲索引周期异常: %s", exc)
+
+
 async def _batch1_engine_worker(app: FastAPI) -> None:
     """批次1分段执行引擎的后台消费者（空闲时 sleep 避免忙等）。
 
@@ -700,6 +737,9 @@ def start_background_tasks(app: FastAPI) -> None:
     )
     app.state.bg_emotion_archive_task = asyncio.create_task(
         _supervised_background_worker("emotion-archive", lambda: _emotion_archive_worker(app))
+    )
+    app.state.bg_idle_index_task = asyncio.create_task(
+        _supervised_background_worker("idle-index", lambda: _idle_indexer_worker(app))
     )
     monitor = getattr(app.state, "system_monitor", None)
     if monitor is not None:
@@ -851,6 +891,29 @@ async def _stage_orphan_cleanup(app: FastAPI) -> None:
         logger.info("[Bootstrap] 启动回收发散引擎孤儿临时目录 %d 个", cleaned)
 
 
+async def _stage_idle_index_catchup(app: FastAPI) -> None:
+    """批次4:启动欠账补做——上次索引落后于文档修改的项目排队补建。
+
+    非 critical:失败仅降级,不阻断启动;开启开关才执行。
+    """
+    if not config_manager.get_bool("feature.idle_index_enable", True):
+        return
+    pm = getattr(app.state, "project_manager", None)
+    if pm is None:
+        return
+    try:
+        from services.idle_indexer import run_idle_index_cycle
+
+        result = await run_idle_index_cycle(
+            pm,
+            indexer=getattr(app.state, "indexer", None),
+        )
+        if result["indexed"]:
+            logger.info("[Bootstrap] 启动欠账补做:索引 %d 个文档", result["indexed"])
+    except Exception as exc:
+        logger.warning("[Bootstrap] 启动欠账补做失败(降级继续): %s", exc)
+
+
 def build_startup_stages() -> list[StartupStage]:
     """启动阶段声明表:顺序、失败语义与依赖关系一目可见。"""
     return [
@@ -875,6 +938,9 @@ def build_startup_stages() -> list[StartupStage]:
                      note="架构镜像生成"),
         StartupStage("orphan_cleanup", _stage_orphan_cleanup, critical=False,
                      note="孤儿临时目录回收"),
+        StartupStage("idle_index_catchup", _stage_idle_index_catchup, critical=False,
+                     depends_on=("control_center",),
+                     note="空闲索引欠账补做(非阻断)"),
     ]
 
 
