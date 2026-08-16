@@ -356,15 +356,19 @@ class EnsembleService:
 
 
 def infer_onstage_ids(tracks: list[LifeTrack], text: str) -> list[str]:
-    """确定性在场角色识别:角色名/ID出现在文本(命令+拍纲)即在场。
+    """确定性在场角色识别:角色名/ID/别名出现在文本(命令+拍纲)即在场。
 
-    能用算的不用LLM:匹配源为生活轨道卡的 name/character_id,
-    别名可后续经轨道卡扩展字段补充。
+    能用算的不用LLM。别名来自轨道卡 aliases(玄德/孟德之类的字与尊称)。
+    同一角色多处命中只计一次,顺序按轨道卡顺序保持确定。
     """
     text = text or ""
     onstage: list[str] = []
+    seen: set[str] = set()
     for t in tracks:
-        candidates = [n for n in (t.name, t.character_id) if n]
+        if t.character_id in seen:
+            continue
+        candidates = [n for n in ([t.name, t.character_id] + list(t.aliases or [])) if n]
         if any(n in text for n in candidates):
             onstage.append(t.character_id)
+            seen.add(t.character_id)
     return onstage

@@ -34,6 +34,8 @@
             验收率 {{ fmt(p.stats?.acceptance_rate) }} · 命中 {{ p.stats?.triggered ?? 0 }} 次
             · 均耗 {{ p.stats?.avg_duration_ms ?? 0 }}ms
             <span v-if="p.stats?.author_retention != null" class="text-emerald-400/80"> · 作者保留率 {{ fmt(p.stats.author_retention) }}</span>
+            <span v-if="p.stats?.signal_tasks != null" class="text-zinc-600"> ({{ p.stats.signal_tasks }} 个确认样本)</span>
+            <span v-if="p.stats?.insufficient_sample" class="ml-1 text-amber-400/80">样本不足,勿作结论</span>
           </div>
         </div>
       </div>
@@ -49,10 +51,33 @@
           <option value="" disabled>选择弧线模式</option>
           <option v-for="a in arcs" :key="a.pattern_id" :value="a.pattern_id">{{ a.name }}({{ a.stages.map(s => s.name).join('→') }})</option>
         </select>
-        <button class="rounded bg-emerald-700/80 px-3 py-1 text-xs text-white hover:bg-emerald-600" @click="applyArc">套用到卷(派生章级预算)</button>
-        <div v-if="arcResult" class="rounded border border-[#2a2a30] bg-[#121212] p-2 text-[11px] text-zinc-400">
+        <div class="flex gap-2">
+          <button class="rounded bg-[#2a2a30] px-3 py-1 text-xs text-zinc-200 hover:bg-[#3a3a40]" @click="previewArc">预览预算序列</button>
+          <button class="rounded bg-emerald-700/80 px-3 py-1 text-xs text-white hover:bg-emerald-600" :disabled="!arcPreview" :class="{ 'opacity-40 cursor-not-allowed': !arcPreview }" @click="applyArc">确认套用到卷</button>
+        </div>
+        <div v-if="arcPreview" class="rounded border border-[#2a2a30] bg-[#121212] p-2 text-[11px] text-zinc-400">
+          预览「{{ arcPreview.name }}」共 {{ arcPreview.n_chapters }} 章(套用会覆盖这些章的预算与弧线绑定,不动已确认拍纲):
+          <div class="mt-1 text-zinc-300">{{ arcPreview.sequence.map(s => `${s.index}:${s.stage}/${s.conflict_intensity}`).join('  ') }}</div>
+        </div>
+        <div v-if="arcResult" class="rounded border border-emerald-800/40 bg-emerald-950/20 p-2 text-[11px] text-emerald-200/90">
           已派生 {{ arcResult.applied }} 章 · 阶段:
-          <span class="text-zinc-300">{{ arcResult.chapters.map(c => `${c.chapter_number}章:${c.arc_stage}`).join(', ') }}</span>
+          <span>{{ arcResult.chapters.map(c => `${c.chapter_number}章:${c.arc_stage}`).join(', ') }}</span>
+        </div>
+        <div class="border-t border-[#2a2a30] pt-3">
+          <button class="rounded bg-[#2a2a30] px-3 py-1 text-xs text-zinc-200 hover:bg-[#3a3a40]" @click="loadVariance">查弧线偏差(配方 vs 实际)</button>
+          <div v-if="variance" class="mt-2 space-y-1 text-[11px] text-zinc-400">
+            <div>
+              绑定 {{ variance.bound_chapters }} 章 · 已测 {{ variance.measured_chapters }} 章 ·
+              达成率 {{ variance.achievement_rate == null ? '—' : fmt(variance.achievement_rate) }}
+            </div>
+            <div v-for="s in variance.stages" :key="s.stage" class="text-zinc-500">
+              {{ s.stage }}:目标均值 {{ s.avg_target }} / 实际均值 {{ s.avg_actual ?? '—' }} · 覆盖 {{ fmt(s.coverage) }}
+            </div>
+            <div v-if="offTargetItems.length" class="text-amber-400/80">
+              偏离章:{{ offTargetItems.map(i => `${i.chapter_number}章(${i.delta > 0 ? '+' : ''}${i.delta})`).join(', ') }}
+            </div>
+            <div class="text-zinc-600">{{ variance.note }}</div>
+          </div>
         </div>
       </div>
 
@@ -61,6 +86,15 @@
         <div class="flex gap-2 text-xs">
           <input v-model="ensForm.project_id" placeholder="项目ID" class="flex-1 rounded border border-[#2a2a30] bg-[#121212] px-2 py-1 text-zinc-200" />
           <button class="rounded bg-[#2a2a30] px-3 py-1 text-zinc-200 hover:bg-[#3a3a40]" @click="loadRelations">查关系账本</button>
+        </div>
+        <div v-if="tracks.length" class="space-y-1">
+          <div class="text-[11px] text-zinc-500">生活轨道(在场识别与矛盾巡检的匹配来源)</div>
+          <div v-for="t in tracks" :key="t.character_id" class="rounded border border-[#2a2a30] bg-[#121212] px-3 py-1.5 text-[11px] text-zinc-400">
+            <span class="text-zinc-300">{{ t.name || t.character_id }}</span>
+            <span class="ml-2">第{{ t.updated_chapter }}章态</span>
+            <span v-if="t.position" class="ml-2">位置:{{ t.position }}</span>
+            <span v-if="t.needs?.length" class="ml-2">需求:{{ t.needs.join('/') }}</span>
+          </div>
         </div>
         <div v-for="r in relations" :key="r.pair" class="rounded border border-[#2a2a30] bg-[#121212] px-3 py-1.5 text-[11px]">
           <span class="text-zinc-300">{{ r.pair.replace('|', ' × ') }}</span>
@@ -97,7 +131,11 @@ const tab = ref('plugins')
 
 const plugins = ref<any[]>([])
 const arcs = ref<any[]>([])
+const arcPreview = ref<any>(null)
+const variance = ref<any>(null)
+const offTargetItems = ref<any[]>([])
 const relations = ref<any[]>([])
+const tracks = ref<any[]>([])
 const reminders = ref<string[]>([])
 const arcResult = ref<any>(null)
 const arcForm = ref({ project_id: '', volume_id: '', pattern_id: '', n_chapters: 12 })
@@ -130,14 +168,39 @@ async function loadArcs() {
     arcs.value = res.data?.arcs ?? []
   } catch { /* 面板静默 */ }
 }
+async function previewArc() {
+  const { pattern_id, n_chapters } = arcForm.value
+  if (!pattern_id) return alert('请选择弧线模式')
+  try {
+    const res = await api.governance.previewArc(pattern_id, n_chapters)
+    arcPreview.value = res.data
+    arcResult.value = null
+  } catch (e: any) {
+    alert(e?.response?.data?.detail ?? '预览失败')
+  }
+}
 async function applyArc() {
   const { project_id, volume_id, pattern_id, n_chapters } = arcForm.value
   if (!project_id || !volume_id || !pattern_id) return alert('请填写项目/卷/弧线')
+  if (!arcPreview.value) return alert('请先预览预算序列再确认套用')
   try {
     const res = await api.governance.applyArc(project_id, volume_id, { pattern_id, n_chapters })
     arcResult.value = res.data
+    arcPreview.value = null
   } catch (e: any) {
     alert(e?.response?.data?.detail ?? '套用失败')
+  }
+}
+async function loadVariance() {
+  const { project_id, volume_id } = arcForm.value
+  if (!project_id) return alert('请填写项目ID')
+  try {
+    const res = await api.governance.arcVariance(project_id, volume_id || undefined)
+    variance.value = res.data
+    offTargetItems.value = (res.data?.items ?? []).filter((i: any) => i.flag !== 'on_target')
+  } catch (e: any) {
+    variance.value = null
+    offTargetItems.value = []
   }
 }
 async function loadRelations() {
@@ -146,6 +209,10 @@ async function loadRelations() {
     const res = await api.governance.ensembleRelations(ensForm.value.project_id)
     relations.value = res.data?.relationships ?? []
   } catch { relations.value = [] }
+  try {
+    const res = await api.governance.ensembleTracks(ensForm.value.project_id)
+    tracks.value = res.data?.tracks ?? []
+  } catch { tracks.value = [] }
 }
 async function closeEvent() {
   const { project_id, event_id } = ensForm.value

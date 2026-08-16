@@ -168,6 +168,17 @@ export const api = {
     /** 套用弧线到卷(派生整卷章级预算) */
     applyArc: (project_id: string, volume_id: string, payload: { pattern_id: string; n_chapters: number; start_number?: number }) =>
       apiClient.post(`/narrative/projects/${project_id}/volumes/${volume_id}/apply-arc`, payload),
+    /** 弧线套用前预览派生的章级预算序列 */
+    previewArc: (pattern_id: string, n_chapters: number) =>
+      apiClient.post(`/narrative/arcs/${pattern_id}/preview`, null, { params: { n_chapters } }),
+    /** 弧线配方 vs 实际偏差报告(只报告,不改预算) */
+    arcVariance: (project_id: string, volume_id?: string) =>
+      apiClient.get(`/narrative/projects/${project_id}/arc-variance`, {
+        params: volume_id ? { volume_id } : {},
+      }),
+    /** 群像生活轨道清单 */
+    ensembleTracks: (project_id: string) =>
+      apiClient.get(`/ensemble/projects/${project_id}/tracks`),
     /** 群像关系账本 */
     ensembleRelations: (project_id: string) =>
       apiClient.get(`/ensemble/projects/${project_id}/relationships`),

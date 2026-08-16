@@ -203,3 +203,38 @@ async def apply_arc(
             for c in saved
         ],
     }
+
+
+@router.get("/narrative/projects/{project_id}/arc-variance")
+async def arc_variance(
+    project_id: str, volume_id: str | None = None,
+    svc: NarrativeStructureService = Depends(_service),
+):
+    """弧线配方 vs 实际实绩偏差报告(只报告,不改预算)。"""
+    await svc.initialize()
+    return await svc.arc_variance_report(project_id, volume_id)
+
+
+@router.post("/narrative/arcs/{pattern_id}/preview")
+async def preview_arc(pattern_id: str, n_chapters: int = Query(ge=1, le=500)):
+    """套用前预览派生的章级预算序列,避免误覆盖已有卷。"""
+    from services.arc_patterns import get_arc_pattern
+
+    pattern = get_arc_pattern(pattern_id)
+    if pattern is None:
+        raise HTTPException(status_code=404, detail="弧线模式不存在")
+    budgets = pattern.derive_budget_sequence(n_chapters)
+    return {
+        "pattern_id": pattern.pattern_id,
+        "name": pattern.name,
+        "n_chapters": n_chapters,
+        "sequence": [
+            {
+                "index": i + 1,
+                "stage": pattern.stage_for_chapter(i, n_chapters).name,
+                "conflict_intensity": b.conflict_intensity,
+                "tempo": b.tempo,
+            }
+            for i, b in enumerate(budgets)
+        ],
+    }

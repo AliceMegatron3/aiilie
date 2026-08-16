@@ -378,6 +378,74 @@ class NarrativeStructureService:
         items.sort(key=lambda i: (not i.overdue, -i.chapters_idle))
         return items
 
+    # ── 弧线配方偏差报告(批次B:只报告,不自动改预算) ────────────
+
+    async def arc_variance_report(
+        self, project_id: str, volume_id: str | None = None
+    ) -> dict[str, Any]:
+        """对比"弧线宣告的阶段张力目标"与"章级实绩",产出偏差报告。
+
+        口径:节奏为软目标(台账#24),本报告不修改任何预算,只给作者
+        与流程反思提供依据。缺实绩的章记为未测量,不计入达成率。
+        """
+        chapters = await self.get_chapters(project_id, volume_id=volume_id)
+        bound = [c for c in chapters if c.arc_pattern_id and c.arc_stage]
+        stage_stats: dict[str, dict[str, Any]] = {}
+        measured = 0
+        achieved = 0
+        items: list[dict[str, Any]] = []
+        for c in bound:
+            target = c.budget.conflict_intensity if c.budget else None
+            actual = c.actuals.conflict_intensity if c.actuals else None
+            entry = stage_stats.setdefault(
+                c.arc_stage,
+                {"stage": c.arc_stage, "chapters": 0, "measured": 0,
+                 "target_sum": 0, "actual_sum": 0},
+            )
+            entry["chapters"] += 1
+            if target is not None:
+                entry["target_sum"] += target
+            if actual is not None and target is not None:
+                measured += 1
+                entry["measured"] += 1
+                entry["actual_sum"] += actual
+                delta = actual - target
+                if abs(delta) <= 1:
+                    achieved += 1
+                items.append({
+                    "chapter_number": c.chapter_number,
+                    "arc_stage": c.arc_stage,
+                    "target": target,
+                    "actual": actual,
+                    "delta": delta,
+                    "flag": (
+                        "below_target" if delta <= -2
+                        else "above_target" if delta >= 2
+                        else "on_target"
+                    ),
+                })
+        for entry in stage_stats.values():
+            entry["avg_target"] = (
+                round(entry["target_sum"] / entry["chapters"], 2) if entry["chapters"] else 0
+            )
+            entry["avg_actual"] = (
+                round(entry["actual_sum"] / entry["measured"], 2) if entry["measured"] else None
+            )
+            entry["coverage"] = (
+                round(entry["measured"] / entry["chapters"], 4) if entry["chapters"] else 0.0
+            )
+        return {
+            "project_id": project_id,
+            "volume_id": volume_id,
+            "bound_chapters": len(bound),
+            "unbound_chapters": len(chapters) - len(bound),
+            "measured_chapters": measured,
+            "achievement_rate": round(achieved / measured, 4) if measured else None,
+            "stages": sorted(stage_stats.values(), key=lambda e: e["stage"]),
+            "items": sorted(items, key=lambda i: i["chapter_number"]),
+            "note": "节奏为软目标;本报告仅供参考,不自动修改任何章级预算",
+        }
+
     # ── 生成简报(结构层接入创作链路,阶段3集成) ────────────────
 
     async def render_generation_brief(self, project_id: str, chapter_number: int) -> str:

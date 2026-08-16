@@ -37,6 +37,10 @@ class LifeTrack(BaseModel):
     character_id: str
     project_id: str
     name: str = ""
+    aliases: list[str] = Field(
+        default_factory=list,
+        description="别名/字/尊称(如 玄德/孟德),用于在场识别匹配",
+    )
     position: str = Field(default="", description="当前所处位置/阵营/处境")
     livelihood: str = Field(default="", description="营生(靠什么过活)")
     attachments: list[str] = Field(default_factory=list, description="牵挂(人/物/念)")
