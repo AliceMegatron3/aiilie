@@ -543,3 +543,89 @@ class CosignVerifier:
             "signer_allowed": (not allowed_signers) or signer in allowed_signers,
             "digest_in_store": (not trusted_digests) or digest in trusted_digests,
         }
+
+    # ── 生产签名（OIDC keyless / Fulcio） ──────────────────────────────
+    def sign_blob_keyless(
+        self,
+        artifact_path: str | Path,
+        *,
+        identity_token: str,
+        oidc_issuer: str | None = None,
+        output_dir: str | Path | None = None,
+        with_bundle: bool = True,
+    ) -> dict[str, Any]:
+        """用 OIDC identity token 做 keyless 签名（生产发布用，替代 CI 的临时密钥演示）。
+
+        在 Sigstore/Fulcio 下用工作负载身份（GitHub Actions 等）签名 blob：:
+
+            cosign sign-blob [--oidc-issuer <issuer>] --identity-token <token>
+                --output-signature <artifact>.sig --output-certificate <artifact>.crt
+                [--bundle <artifact>.bundle] <artifact>
+
+        - 签名材料落到 ``<artifact>.sig`` 与 ``<artifact>.sig.bundle``（与
+          ``find_signature_materials`` / ``verify_blob_signature`` 的命名约定一致）。
+        - 所有 Cosign 命令构造都收敛在此服务；cosign 不可用/命令失败一律 ``ok=False``，
+          绝不伪造“已签名”。
+
+        :return: ``{ok, reason, sig_path, bundle_path, raw}``。
+        """
+        artifact = Path(artifact_path).resolve()
+        out = Path(output_dir).resolve() if output_dir else artifact.parent
+        sig_path = out / (artifact.name + SIG_SUFFIX)
+        bundle_path = out / (artifact.name + ".sig.bundle")
+        report: dict[str, Any] = {
+            "ok": False,
+            "reason": "",
+            "tool_available": True,
+            "artifact_path": str(artifact),
+            "sig_path": str(sig_path),
+            "bundle_path": str(bundle_path) if with_bundle else None,
+            "raw": {"command": [], "stdout": "", "stderr": ""},
+        }
+        if not identity_token:
+            report["reason"] = "IDENTITY_TOKEN_MISSING"
+            return report
+
+        argv: list[str] = [
+            self.cosign_binary,
+            "sign-blob",
+            "--identity-token",
+            identity_token,
+            "--output-signature",
+            str(sig_path),
+            "--output-certificate",
+            str(out / (artifact.name + ".crt")),
+        ]
+        if oidc_issuer:
+            argv += ["--oidc-issuer", oidc_issuer]
+        if with_bundle:
+            argv += ["--bundle", str(bundle_path)]
+        argv.append(str(artifact))
+        report["raw"]["command"] = argv
+
+        try:
+            result = self._command_runner(argv)
+        except FileNotFoundError as exc:
+            report["tool_available"] = False
+            report["reason"] = f"COSIGN_UNAVAILABLE: {exc}"
+            return report
+        except Exception as exc:  # noqa: BLE001
+            report["tool_available"] = False
+            report["reason"] = f"COSIGN_UNAVAILABLE: {type(exc).__name__}: {exc}"
+            return report
+        report["raw"]["stdout"] = result.stdout
+        report["raw"]["stderr"] = result.stderr
+
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "").strip()
+            report["reason"] = (
+                f"COSIGN_SIGN_FAILED (rc={result.returncode}): {detail or 'unknown'}"
+            )
+            return report
+        # 产物落盘确认：签名文件存在才算成功
+        if not sig_path.is_file():
+            report["reason"] = "SIGNATURE_NOT_CREATED"
+            return report
+        report["ok"] = True
+        report["reason"] = "SIGNED"
+        return report

@@ -427,3 +427,67 @@ def test_real_cosign_rejects_tampered_blob(tmp_path):
         expected_digest=hashlib.sha256(b"original").hexdigest(),
     )
     assert result["ok"] is False  # digest 绑定也应失败
+
+
+# ── 生产 keyless 签名（sign_blob_keyless, 纯逻辑注入 runner）──────────
+def _make_sign_artifact(tmp_path: Path) -> Path:
+    artifact = tmp_path / "pkg.bin"
+    artifact.write_bytes(b"production payload")
+    return artifact
+
+
+def test_sign_blob_keyless_constructs_oidc_command_and_confirms_sig(tmp_path):
+    """keyless 签名：构造 sign-blob --identity-token 命令，且仅当签名文件落盘才算成功。"""
+    artifact = _make_sign_artifact(tmp_path)
+    calls: list[list[str]] = []
+
+    def sign_ok(argv: list[str]) -> CommandResult:
+        calls.append(list(argv))
+        # 模拟 cosign 在 --output-signature 路径落盘签名
+        sig = Path(argv[argv.index("--output-signature") + 1])
+        sig.write_text("sig-material")
+        return CommandResult(0, "", "")
+
+    v = CosignVerifier(cosign_binary="cosign", command_runner=sign_ok)
+    result = v.sign_blob_keyless(
+        artifact, identity_token="TOK-ABC", oidc_issuer="https://token.actions.githubusercontent.com"
+    )
+    assert result["ok"] is True
+    assert result["reason"] == "SIGNED"
+    cmd = calls[0]
+    assert cmd[0] == "cosign" and cmd[1] == "sign-blob"
+    assert "--identity-token" in cmd and "TOK-ABC" in cmd
+    assert "--oidc-issuer" in cmd
+    assert "--bundle" in cmd
+    # 签名文件已创建
+    assert Path(result["sig_path"]).is_file()
+
+
+def test_sign_blob_keyless_missing_token_fails_closed(tmp_path):
+    artifact = _make_sign_artifact(tmp_path)
+    v = CosignVerifier(cosign_binary="cosign", command_runner=_FakeRunner(returncode=0))
+    result = v.sign_blob_keyless(artifact, identity_token="")
+    assert result["ok"] is False
+    assert result["reason"] == "IDENTITY_TOKEN_MISSING"
+
+
+def test_sign_blob_keyless_command_failure_is_not_forged(tmp_path):
+    """cosign 命令失败，绝不伪造“已签名”。"""
+    artifact = _make_sign_artifact(tmp_path)
+    v = CosignVerifier(cosign_binary="cosign", command_runner=_FakeRunner(returncode=1, stderr="denied"))
+    result = v.sign_blob_keyless(artifact, identity_token="TOK-X")
+    assert result["ok"] is False
+    assert "COSIGN_SIGN_FAILED" in result["reason"]
+    # 签名文件不应存在
+    assert not (tmp_path / "pkg.bin.sig").exists()
+
+
+def test_sign_blob_keyless_success_requires_disk_sig(tmp_path):
+    """返回 0 但签名文件未落盘 -> 仍判失败（不伪造）。"""
+    artifact = _make_sign_artifact(tmp_path)
+    runner = _FakeRunner(returncode=0)
+    # 不在磁盘创建签名文件（runner 只返回 0）
+    v = CosignVerifier(cosign_binary="cosign", command_runner=runner)
+    result = v.sign_blob_keyless(artifact, identity_token="TOK-Y")
+    assert result["ok"] is False
+    assert result["reason"] == "SIGNATURE_NOT_CREATED"
