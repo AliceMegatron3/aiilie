@@ -16,6 +16,7 @@ from models.novel_agent import (
 )
 from models.code_execution import CodeArtifact, CodeAudit, CodeFileSpec, CodePlan, CodeTaskRecord, CodeTaskRequest, CodeTaskPhase, CodeTaskStatus
 from models.poetry import MeterForm, PoetryEdition, PoetryEvaluation, PoetryLine, PoetryWork, ProsodyReading
+from models.quantification import ParseRun, QuantifyRun, DocumentVersion
 from models.ledger import (
     DocumentRecord,
     PassageRecord,
@@ -52,6 +53,9 @@ __all__ = [
     "PoetryWork",
     "ProsodyReading",
     "MeterForm",
+    "ParseRun",
+    "QuantifyRun",
+    "DocumentVersion",
     "DocumentRecord",
     "PassageRecord",
     "EvidenceRecord",
