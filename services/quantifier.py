@@ -400,6 +400,21 @@ class BookQuantifier:
         content = f"量化书籍{book_id}完成，模式={mode}，共{len(cards)}张卡片（资料{info_count}/数据{data_count}）"
         experience_manager.add_experience("quantize", content)
 
+        # P1：量化完成 → 唯一 ReflectionSession（幂等、provenance、可回放）。
+        # 生成稳定来源指纹（book+mode），同输入重复量化不产生第二个会话/副作用。
+        from services.quantify_reflection import create_quantify_reflection
+        source_hash = hashlib.sha256(f"{book_id}|{mode}".encode("utf-8")).hexdigest()
+        try:
+            await create_quantify_reflection(
+                self.indexer,
+                book_id=book_id,
+                source_hash=source_hash,
+                mode=mode,
+                metrics={"cards_total": len(cards), "info_count": info_count, "data_count": data_count},
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[Quantifier] 量化反思会话创建失败（不影响主流程）: %s", exc)
+
     async def _ensure_category_summary(self, book_id: str) -> None:
         """为书籍的主要分类生成/更新摘要卡（每 50 张卡片触发）。"""
         # 对资料卡的主要分类检查
