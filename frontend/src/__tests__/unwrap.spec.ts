@@ -45,4 +45,14 @@ describe('API 契约统一 unwrapData/unwrap（7.8 / Batch 1 前端可用性）'
     }
     expect(unwrapData(res)).toEqual({ status: 'COMPLETED', run_id: 'r1', details: [] })
   })
+
+  it('P2: 上传书籍信封 book_id 在内层 data（/books/upload_file）', () => {
+    // 后端返回 ok({book_id, passage_count, ledger}) → res.data.data.book_id
+    const res = {
+      data: { success: true, data: { book_id: 'book_abc', passage_count: 3 }, message: '书籍上传并解析成功' },
+    }
+    const body: any = unwrapData(res)
+    expect(body.book_id).toBe('book_abc')
+    expect(body.passage_count).toBe(3)
+  })
 })

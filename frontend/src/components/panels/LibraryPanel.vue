@@ -228,10 +228,13 @@ const handleFileSelect = async (event) => {
   isLoading.value = true
   try {
     const res = await api.library.uploadBookFile(file)
-    if (res.data.success || res.data.book_id) {
+    // 后端 /books/upload_file 返回信封 {success, data:{book_id, passage_count, ledger}}
+    const body = res.data?.data || {}
+    if (res.data?.success || body?.book_id) {
+      const bookId = body?.book_id
       // 保存到本地列表
       const bookEntry = {
-        book_id: res.data.book_id,
+        book_id: bookId,
         title: file.name,
         size: file.size,
       }
