@@ -41,7 +41,13 @@ function enabled(key: string, defaultOn = false): boolean {
   return typeof val === 'boolean' ? val : defaultOn
 }
 
+/** 重新拉取开关：清空已加载标记后再次 load（覆盖后端热切换）。 */
+async function reload(): Promise<void> {
+  loaded = false
+  return load()
+}
+
 export function useFeatureFlags() {
   if (!loaded && !loading) void load()
-  return { flags, enabled, reload: load }
+  return { flags, enabled, reload }
 }

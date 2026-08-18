@@ -66,20 +66,10 @@ function charDiff(a: string, b: string): DiffTuple[] {
 
 /** 按行 diff（大文本对比，性能更好）。 */
 export function diffLines(a: string, b: string): DiffTuple[] {
-  const la = a.split('\n')
-  const lb = b.split('\n')
-  const lineDiffs = lcsDiff(la, lb)
-  // 还原换行
-  const restored: DiffTuple[] = lineDiffs.map(([op, text]) => {
-    if (op === 0) return [op, text + '\n'] as DiffTuple
-    return [op, text + '\n'] as DiffTuple
-  })
-  // 去掉末尾多余换行
-  if (restored.length) {
-    const last = restored[restored.length - 1]
-    last[1] = last[1].replace(/\n$/, '')
-  }
-  return restored
+  // 每行保留末尾换行作为 token 一部分，避免 merge 时丢行分隔符（可还原两输入）。
+  const withNl = (s: string): string[] =>
+    s.split('\n').map((line, i, arr) => (i === arr.length - 1 ? line : line + '\n'))
+  return lcsDiff(withNl(a), withNl(b))
 }
 
 export const diffMatchPatch: DiffMatchPatchLike = {
