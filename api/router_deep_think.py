@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from core.config_manager import config_manager
 from api.deps import verify_token
+from core.response import ok
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="", tags=["DeepThink"], dependencies=[Depends(verify_token)])
@@ -55,7 +56,7 @@ async def submit_deep_think_task(
     svc = _get_service(request)
     try:
         task_id = await svc.submit_task(req.prompt, req.project_id, req.doc_id)
-        return {"success": True, "data": {"task_id": task_id}, "message": "长思考任务已受理", "error_code": None}
+        return ok({"task_id": task_id}, message="长思考任务已受理")
     except Exception as e:
         logger.error("长思考任务提交失败: %s", e)
         raise HTTPException(status_code=500, detail="长思考任务提交失败")
@@ -71,7 +72,7 @@ async def get_deep_think_report(
     report = await svc.get_report(task_id)
     if report is None:
         raise HTTPException(status_code=404, detail="分析报告尚未生成（任务进行中或不存在）")
-    return {"success": True, "data": report, "message": "success", "error_code": None}
+    return ok(report, message="success")
 
 
 @router.get("/deep-think/checkpoints/{task_id}", summary="获取任务检查点（断点续算状态）")
@@ -84,7 +85,7 @@ async def get_deep_think_checkpoint(
     checkpoint = await svc.list_checkpoints(task_id)
     if checkpoint is None:
         raise HTTPException(status_code=404, detail="无检查点记录")
-    return {"success": True, "data": checkpoint, "message": "success", "error_code": None}
+    return ok(checkpoint, message="success")
 
 
 @router.get("/deep-think/tickets", summary="获取软件进化建议书（元开发者分析）")
@@ -94,7 +95,7 @@ async def get_improvement_tickets(request: Request) -> dict[str, Any]:
 
     analyzer = SoftwareArchitectAnalyzer()
     tickets = await analyzer.analyze()
-    return {"success": True, "data": tickets, "message": "success", "error_code": None}
+    return ok(tickets, message="success")
 
 
 # ── 用户行为日志采集 ───────────────────────────────────────────
@@ -112,7 +113,7 @@ async def report_behavior_event(req: BehaviorEventRequest) -> dict[str, Any]:
     if req.event_type not in ("action_path", "page_stay", "error_path", "generic"):
         raise HTTPException(status_code=400, detail="非法事件类型")
     behavior_logger.log_event(req.event_type, req.payload)
-    return {"success": True, "message": "已记录", "error_code": None}
+    return ok({"recorded": True}, message="已记录")
 
 
 # ── 系统架构镜像（blueprint） ──────────────────────────────────
@@ -129,7 +130,7 @@ async def get_system_blueprint(
     except Exception as exc:
         logger.error("架构镜像生成失败: %s", exc)
         raise HTTPException(status_code=500, detail="架构镜像生成失败")
-    return {"success": True, "data": blueprints, "message": "success", "error_code": None}
+    return ok(blueprints, message="success")
 
 
 @router.get("/system/blueprint/{name}", summary="按名称读取单份架构镜像")
@@ -141,4 +142,4 @@ async def get_single_blueprint(name: str) -> dict[str, Any]:
         data = blueprint_generator.load(name)
     except (ValueError, FileNotFoundError) as e:
         raise HTTPException(status_code=404, detail=str(e))
-    return {"success": True, "data": data, "message": "success", "error_code": None}
+    return ok(data, message="success")

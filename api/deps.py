@@ -19,9 +19,14 @@ if TYPE_CHECKING:
     from core.database import DatabaseManager
     from core.task_manager import TaskManager
     from services.card_registry import CardTypeRegistry
-    from services.dispatcher import ModelDispatcher
+    from services.code_execution import CodeExecutionService
+    from services.web_access import WebAccessService
     from services.global_router import GlobalRouter
     from services.indexer import CardIndexer
+    from services.ledger_repository import LedgerRepository
+    from services.ledger_read_facade import LedgerReadFacade
+    from services.ledger_readiness import LedgerReadiness
+    from services.skill_governance import SkillGovernance
     from services.load_estimator import LoadEstimator
     from services.project_manager import ProjectManager
     from services.quantifier import BookQuantifier
@@ -58,12 +63,36 @@ def get_indexer(request: Request) -> "CardIndexer":
     return _state(request, "indexer")
 
 
+def get_ledger_repository(request: Request) -> "LedgerRepository":
+    return _state(request, "ledger_repository")
+
+
+def get_skill_governance(request: Request) -> "SkillGovernance":
+    return _state(request, "skill_governance")
+
+
+def get_ledger_read_facade(request: Request) -> "LedgerReadFacade":
+    return _state(request, "ledger_read_facade")
+
+
+def get_ledger_readiness(request: Request) -> "LedgerReadiness":
+    return _state(request, "ledger_readiness")
+
+
 def get_registry(request: Request) -> "CardTypeRegistry":
     return _state(request, "registry")
 
 
 def get_quantifier(request: Request) -> "BookQuantifier":
     return _state(request, "quantifier")
+
+
+def get_code_execution_service(request: Request) -> "CodeExecutionService":
+    return _state(request, "code_execution_service")
+
+
+def get_web_access_service(request: Request) -> "WebAccessService":
+    return _state(request, "web_access_service")
 
 
 def get_project_manager(request: Request) -> "ProjectManager":

@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { api } from '../api'
+import { api, unwrap } from '../api'
 const systemState = ref('IDLE')
 const cpuPercent = ref(0)
 const memoryPercent = ref(0)
@@ -68,8 +68,9 @@ const diskFreeGb = computed(() => resourceStats.value?.disk_free_gb ?? 0)
 const loadSystemStatus = async () => {
   try {
     const res = await api.system.status()
-    systemState.value = res.data.global_state || 'IDLE'
-    const health = res.data.health_report || {}
+    const st = unwrap<any>(res) || {}
+    systemState.value = st.global_state || 'IDLE'
+    const health = st.health_report || {}
     cpuPercent.value = Math.round(health.cpu_percent || 0)
     memoryPercent.value = Math.round(health.memory_percent || 0)
     // 趋势采样
@@ -82,7 +83,7 @@ const loadSystemStatus = async () => {
 const loadQueue = async () => {
   try {
     const res = await api.system.queue()
-    queueInfo.value = res.data
+    queueInfo.value = unwrap<any>(res)
   } catch (e) {
     // 静默
   }
@@ -90,10 +91,8 @@ const loadQueue = async () => {
 const loadResourceStats = async () => {
   try {
     const res = await api.system.resourceStats()
-    // 后端响应信封为 { success, data: {...} }
-    if (res.data.success && res.data.data) {
-      resourceStats.value = res.data.data
-    }
+    // 后端统一信封 { success, data: {...} }，经 unwrap 取业务 data
+    resourceStats.value = unwrap<any>(res)
   } catch (e) {
     // 静默
   }
@@ -101,7 +100,7 @@ const loadResourceStats = async () => {
 const loadPlugins = async () => {
   try {
     const res = await api.plugins.list()
-    plugins.value = res.data.data || []
+    plugins.value = unwrap<any>(res) || []
   } catch (e) {
     plugins.value = []
   }
@@ -118,8 +117,10 @@ const triggerGC = async () => {
   }
 }
 const installPlugin = async () => {
+  const source = prompt('输入插件目录或 zip 包路径:')
+  if (!source) return
   try {
-    await api.plugins.install()
+    await api.plugins.install(source)
     loadPlugins()
   } catch (e) {
     console.error('插件安装失败', e)

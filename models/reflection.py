@@ -32,7 +32,7 @@ class ReflectionSession(BaseModel):
     )
     start_time: str = Field(default_factory=current_utc_time, description="开始时间")
     end_time: str | None = Field(default=None, description="结束时间")
-    status: Literal["RUNNING", "COMPLETED", "FAILED"] = Field(
+    status: Literal["RUNNING", "COMPLETED", "FAILED", "NEEDS_REVIEW"] = Field(
         default="RUNNING", 
         description="会话当前状态"
     )
@@ -40,6 +40,16 @@ class ReflectionSession(BaseModel):
         default=None, 
         description="本地化存储的完整反思报告 (JSON) 路径"
     )
+    # ── Batch 2：显式 provenance（与 CandidateKnowledge/QuantifyRun 对齐，非 extra=allow）──
+    run_id: str = Field(default="", description="本次量化/反思运行标识")
+    source_snapshot: str = Field(default="", description="来源快照标识（同一快照只允许一个会话）")
+    input_hash: str = Field(default="", description="输入指纹（幂等/回放去重用）")
+    parser: str = Field(default="", description="解析器 id")
+    model: str = Field(default="", description="模型 id（空表示纯规则/无 LLM）")
+    prompt: str = Field(default="", description="触发提示词/采集说明")
+    artifact: dict[str, Any] = Field(default_factory=dict, description="关联产物（claims/evidence/metrics 汇总）")
+    reviewer: str = Field(default="", description="审核人（作者/评审）")
+    replay: bool = Field(default=False, description="是否为回放/重放产生的会话快照")
 
 
 class OptimizationRule(BaseModel):

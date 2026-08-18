@@ -175,8 +175,9 @@ async def test_rollback_rebuilds_from_version_log(svc):
 @pytest.mark.asyncio
 async def test_api_router_mounted():
     from api.api_router import api_router
+    from tests.conftest import flatten_api_router
 
-    paths = {r.path for r in api_router.routes}
+    paths = {r.path for r in flatten_api_router(api_router)}
     assert any("/lockfield/" in p for p in paths)
 
 

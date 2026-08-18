@@ -14,6 +14,20 @@ from models.novel_agent import (
     NovelAgentSkill,
     SubAgentCallRecord,
 )
+from models.code_execution import CodeArtifact, CodeAudit, CodeFileSpec, CodePlan, CodeTaskRecord, CodeTaskRequest, CodeTaskPhase, CodeTaskStatus
+from models.poetry import MeterForm, PoetryEdition, PoetryEvaluation, PoetryLine, PoetryWork, ProsodyReading
+from models.ledger import (
+    DocumentRecord,
+    PassageRecord,
+    EvidenceRecord,
+    ClaimRecord,
+    MetricRecord,
+    RelationRecord,
+    RunAuditRecord,
+    LawRecord,
+    LawBranchRecord,
+    LawBranchRevision,
+)
 __all__ = [
     "CommandTask",
     "Segment",
@@ -25,4 +39,27 @@ __all__ = [
     "NovelAgentExecutionAudit",
     "NovelAgentSkill",
     "SubAgentCallRecord",
+    "CodeArtifact",
+    "CodeAudit",
+    "CodeFileSpec",
+    "CodePlan",
+    "CodeTaskRequest",
+    "CodeTaskRecord",
+    "CodeTaskPhase",
+    "PoetryEdition",
+    "PoetryEvaluation",
+    "PoetryLine",
+    "PoetryWork",
+    "ProsodyReading",
+    "MeterForm",
+    "DocumentRecord",
+    "PassageRecord",
+    "EvidenceRecord",
+    "ClaimRecord",
+    "MetricRecord",
+    "RelationRecord",
+    "RunAuditRecord",
+    "LawRecord",
+    "LawBranchRecord",
+    "LawBranchRevision",
 ]

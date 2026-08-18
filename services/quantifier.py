@@ -10,6 +10,7 @@ P1-1.4 修复：移除本模块内的 TailContextManager 简化内存桩，
 """
 from __future__ import annotations
 import asyncio
+import hashlib
 import json
 import logging
 from datetime import datetime, timezone
@@ -51,32 +52,64 @@ class BookQuantifier:
         self.splitter = CommandSplitter()
         # P1-1.4：尾巴统一走真实 TailContextManager（双模式落盘/断点恢复）
         self.tail_manager = tail_manager or TailContextManager()
-        
+        # 提取策略组：默认组合策略（LLM 优先 + 规则兜底）
+        self.strategy = strategy
+        self._rule_strategy = None
+        self._llm_strategy = None
+        # 尝试拆出 rule / llm 子策略，供按任务切换提取模式使用
+        from strategies.extraction import DefaultStrategy, FallbackStrategy
+        from strategies.llm_extraction import LLMExtractionStrategy
+
+        if isinstance(strategy, FallbackStrategy):
+            self._llm_strategy = strategy.primary
+            self._rule_strategy = strategy.fallback
+        elif isinstance(strategy, LLMExtractionStrategy):
+            self._llm_strategy = strategy
+        elif isinstance(strategy, DefaultStrategy):
+            self._rule_strategy = strategy
+
         # 书库原始文件所在目录
         self.books_dir = get_app_data_dir().parent / "library" / "books"
         self.books_dir.mkdir(parents=True, exist_ok=True)
+
+    def _resolve_strategy(self, extraction: str | None = None) -> Any:
+        """按任务级 extraction 模式解析提取策略。
+
+        - "llm":  仅 LLM 提取（无 LLM 策略时回退默认策略）
+        - "rule": 仅规则提取
+        - 其他(auto/None): 使用默认组合策略（LLM 优先 + 规则兜底）
+        """
+        mode = (extraction or "").strip().lower()
+        if mode == "rule" and self._rule_strategy is not None:
+            return self._rule_strategy
+        if mode == "llm" and self._llm_strategy is not None:
+            return self._llm_strategy
+        return self.strategy
     async def submit_quantize_task(
         self,
         book_id: str,
         mode: str = "both",
         segment_strategy: str = "force_split",
+        model: str | None = None,
+        extraction: str | None = None,
+        quantize_round: int = 1,
     ) -> str:
         """
-        创建一个新的书籍量化任务，推入 TaskManager。
-        返回生成的 task_id。
+        创建一个新的书籍量化任务。
 
-        B1-09：segment_strategy 即业务 hint_force（优先级高于 LoadEstimator
-        自动预估），默认 force_split 保证量化重负载任务一定多节点分段；
-        调用方可按需覆盖（如 no_split/auto 调试）。
+        quantize_round: 1=粗扫 2=深挖 3=精炼
         """
+        if extraction is None:
+            from core.config_manager import config_manager
+            extraction = config_manager.get("library.quantize_extraction", "auto") or "auto"
+        model_suffix = f" model={model}" if model else ""
         task = QuantizeTask(
             book_id=book_id,
-            raw_command=f"quantize book {book_id} mode={mode}",
+            raw_command=f"quantize book {book_id} mode={mode} round={quantize_round}{model_suffix}",
             priority=2,
             status="PENDING",
             segment_strategy=segment_strategy,
-            # mode can be added via extra kwargs since we have extra="allow"
-            **{"mode": mode}
+            **{"mode": mode, "model": model, "extraction": extraction, "quantize_round": quantize_round}
         )
         
         await self.task_manager.submit_task(task)
@@ -99,14 +132,35 @@ class BookQuantifier:
             else:
                 raise ValueError("未知的书籍目标，无法执行量化任务。")
         logger.info("[Quantifier] 开始执行主量化任务: %s，目标书籍: %s", task_id, book_id)
-        # 1. 尝试读取书籍原始内容（safe_join 防 book_id 路径遍历）
+
+        # 获取量化轮次
+        quantize_round = getattr(task, "quantize_round", 1)
+        round_label = {1: "粗扫", 2: "深挖", 3: "精炼"}.get(quantize_round, f"R{quantize_round}")
+
+        # WebSocket 启动通知
+        try:
+            from api.websocket import manager
+            await manager.broadcast({
+                "type": "quantize_start",
+                "task_id": task_id,
+                "book_id": book_id,
+                "mode": getattr(task, "mode", "both"),
+                "model": getattr(task, "model", None),
+                "round": quantize_round,
+                "round_label": round_label,
+            })
+        except Exception:
+            pass
+
+        # 1. 读取书籍原始内容（safe_join 防 book_id 路径遍历）。
+        # 原文不存在时必须失败，不能生成没有来源的正式卡片。
         book_file = safe_join(self.books_dir, f"{book_id}.txt")
-        if not book_file.exists():
-            # 模拟存在，避免实际运行时报错
-            raw_text = f"这是书籍 {book_id} 的虚拟内容。在实际流程中应该有10万字小说..."
-            logger.warning("未找到实体书文件 %s，使用占位文本...", book_file)
-        else:
-            raw_text = book_file.read_text(encoding="utf-8")
+        if not book_file.exists() or not book_file.is_file():
+            raise FileNotFoundError(f"书籍原文不存在，无法量化: {book_id}")
+        raw_text = book_file.read_text(encoding="utf-8")
+        if not raw_text.strip():
+            raise ValueError(f"书籍原文为空，无法量化: {book_id}")
+        source_hash = hashlib.sha256(raw_text.encode("utf-8")).hexdigest()
         # 2. 从数据库查询是否已有生成的 Segment (用于断点恢复)
         segments = await self.db.get_segments_for_task(task_id)
         
@@ -142,6 +196,8 @@ class BookQuantifier:
             # 重新获取插入后的 segments
             segments = await self.db.get_segments_for_task(task_id)
         # 3. 遍历执行每一个尚未完成的 Segment
+        total_segs = len(segs_to_run := [s for s in segments if s["status"] != "COMPLETED"])
+        seg_idx = 0
         for seg in segments:
             seg_id = seg["segment_id"]
             if seg["status"] == "COMPLETED":
@@ -170,34 +226,40 @@ class BookQuantifier:
                 context_payload = {
                     "book_id": book_id,
                     "chapter": f"Part-{seg['sequence_order']}",
-                    "tail_context": prev_tail
+                    "tail_context": prev_tail,
+                    "source_document_id": book_id,
+                    "source_hash": source_hash,
+                    "source_anchor": {
+                        "source_document_id": book_id,
+                        "source_path": str(book_file),
+                        "paragraph": seg["sequence_order"],
+                    },
+                    "quantize_round": quantize_round,
+                    "mode": getattr(task, "mode", "both"),
+                    "model": getattr(task, "model", None),
                 }
                 
-                # ==========================================
-                # 核心联动：调用批次2 ExtractionStrategy 提取卡片
-                # ==========================================
-                logger.info("正在量化提取分段: %s", seg_id)
-                cards = await self.strategy.extract(seg["content_payload"], context_payload)
-                
-                # ==========================================
-                # 核心联动：调用批次2 CardIndexer 落盘存储
-                # ==========================================
-                
-                # 【事件简报专员】节点逻辑：在量化结束前自动生成 SummaryCard
-                from models.cards import InfoCard
-                summary_content = f"本段内容量化摘要，共提取了 {len(cards)} 张细节卡片。总结该分段剧情进展与核心事件..."
-                summary_card = InfoCard(
-                    source_book_id=book_id,
-                    content=summary_content,
-                    card_sub_type="summary",
-                    entropy_score=0.3,
-                    utility_score=0.8
+                # 核心联动：调用批次2 ExtractionStrategy 提取卡片。
+                # round 1=粗扫，round 2=深挖，round 3=精炼；具体策略仍由任务模式决定。
+                extraction_mode = getattr(task, "extraction", None)
+                if quantize_round == 2:
+                    extraction_mode = "llm"
+                elif quantize_round == 3:
+                    extraction_mode = "rule"
+                strategy = self._resolve_strategy(extraction_mode)
+                cards = await strategy.extract(seg["content_payload"], context_payload)
+
+                # 只保留真实提取结果。摘要必须由提取策略产生，不能用固定模板伪造。
+                # 精炼轮次按稳定指纹去重；其余轮次也通过索引 upsert 保证重试幂等。
+                cards = self._filter_cards_for_task(
+                    cards,
+                    book_id,
+                    seg,
+                    source_hash,
+                    mode=str(getattr(task, "mode", "both") or "both"),
                 )
-                summary_card.tags = ["auto_summary", f"part_{seg['sequence_order']}"]
-                
-                # 统一批量写入
-                cards.append(summary_card)
-                await self.indexer.save_cards(cards)
+                if cards:
+                    await self.indexer.save_cards(cards)
                 
                 # 模拟提取新的句尾上下文并更新
                 # P1-1.4：尾巴经真实 TailContextManager 落盘/驻留（超大时磁盘卸载）
@@ -210,13 +272,29 @@ class BookQuantifier:
                 
                 # 记录最终状态
                 await self.db.update_segment_status(
-                    seg_id, 
-                    "COMPLETED", 
-                    result_content=f"Generated {len(cards)} cards", 
+                    seg_id,
+                    "COMPLETED",
+                    result_content=f"Generated {len(cards)} cards",
                     new_tail=stored_tail
                 )
-                
+
+                # WebSocket 进度推送
+                await self._broadcast_progress(task_id, book_id, seg_idx + 1, total_segs, len(cards))
+
+                # 批量打分：新卡片自动计算 utility/entropy
+                try:
+                    await self.indexer.batch_score_cards(book_id)
+                except Exception:
+                    pass
+
+                # 分类摘要卡检查（每 50 张触发）
+                try:
+                    await self._ensure_category_summary(book_id)
+                except Exception:
+                    pass
+
                 # 避免极高并发导致过度占用资源
+                seg_idx += 1
                 await asyncio.sleep(0.1)
             except Exception as e:
                 logger.exception("处理分段 %s 时发生错误", seg_id)
@@ -224,3 +302,121 @@ class BookQuantifier:
                 # 发生严重错误后中断整个大任务，等待后续调度重试
                 raise RuntimeError(f"流水线分段失败，中断任务 {task_id}") from e
         logger.info("[Quantifier] 任务 %s 旗下全部分段已量化完成", task_id)
+
+        # WebSocket 完成通知
+        await self._broadcast_done(task_id, book_id)
+
+        # 量化完成 → 触发量化反思（异步，不阻断主流程）
+        try:
+            await self._trigger_quantize_reflection(task_id, book_id, getattr(task, "mode", "both"))
+        except Exception as e:
+            logger.warning("[Quantifier] 量化反思触发失败（不影响主流程）: %s", e)
+
+    @staticmethod
+    def _filter_cards_for_task(
+        cards: list[Any],
+        book_id: str,
+        segment: dict[str, Any],
+        source_hash: str,
+        mode: str = "both",
+    ) -> list[Any]:
+        """为量化产物补稳定来源指纹、按模式过滤并去重。"""
+        seen: set[str] = set()
+        filtered: list[Any] = []
+        sequence = int(segment.get("sequence_order", 0))
+        for card in cards or []:
+            try:
+                payload = card.model_dump(mode="json")
+                content = str(payload.get("content") or "").strip()
+                if not content:
+                    continue
+                card_type = str(payload.get("card_type", "info"))
+                if mode == "info" and card_type != "info":
+                    continue
+                if mode == "data" and card_type != "data":
+                    continue
+                subtype = str(
+                    payload.get("card_sub_type")
+                    or payload.get("metric_type")
+                    or payload.get("extension_module")
+                    or ""
+                )
+                fingerprint = hashlib.sha256(
+                    "|".join((source_hash, str(sequence), card_type, subtype, content)).encode("utf-8")
+                ).hexdigest()
+                if fingerprint in seen:
+                    continue
+                seen.add(fingerprint)
+                payload["card_id"] = f"card_{fingerprint[:24]}"
+                payload["source_book_id"] = book_id
+                payload["source_document_id"] = book_id
+                payload["source_chapter"] = payload.get("source_chapter") or f"Part-{sequence}"
+                payload["source_anchor"] = {
+                    **(payload.get("source_anchor") or {}),
+                    "source_document_id": book_id,
+                    "paragraph": sequence,
+                    "quote": payload.get("original_fragment", "") or content[:200],
+                }
+                filtered.append(card.__class__.model_validate(payload))
+            except Exception as exc:
+                logger.warning("跳过无法建立来源指纹的卡片: %s", exc)
+        return filtered
+
+    async def _broadcast_progress(self, task_id: str, book_id: str, completed: int, total: int, cards_in_seg: int) -> None:
+        """向 AI 对话窗口推送量化进度。"""
+        try:
+            from api.websocket import manager
+            await manager.broadcast({
+                "type": "quantize_progress",
+                "task_id": task_id,
+                "book_id": book_id,
+                "completed": completed,
+                "total": total,
+                "cards_in_seg": cards_in_seg,
+            })
+        except Exception:
+            pass  # WebSocket 不可用时静默
+
+    async def _broadcast_done(self, task_id: str, book_id: str) -> None:
+        """向 AI 对话窗口推送量化完成通知。"""
+        try:
+            from api.websocket import manager
+            await manager.broadcast({
+                "type": "quantize_done",
+                "task_id": task_id,
+                "book_id": book_id,
+            })
+        except Exception:
+            pass
+
+    async def _trigger_quantize_reflection(self, task_id: str, book_id: str, mode: str) -> None:
+        """量化完成后触发反思学习。"""
+        # 统计本轮提取的卡片
+        cards = await self.indexer.search_cards(source_book=book_id, limit=500)
+        info_count = sum(1 for c in cards if c.get("card_type") == "info")
+        data_count = sum(1 for c in cards if c.get("card_type") == "data")
+        # 写入经验库
+        from services.experience_manager import experience_manager
+        content = f"量化书籍{book_id}完成，模式={mode}，共{len(cards)}张卡片（资料{info_count}/数据{data_count}）"
+        experience_manager.add_experience("quantize", content)
+
+    async def _ensure_category_summary(self, book_id: str) -> None:
+        """为书籍的主要分类生成/更新摘要卡（每 50 张卡片触发）。"""
+        # 对资料卡的主要分类检查
+        for category in ("worldview", "plot", "character", "style"):
+            summary = await self.indexer.get_category_summary("info", category=category)
+            if summary["count"] > 0 and summary["count"] % 50 == 0:
+                # 生成/更新分类摘要卡
+                from models.cards import InfoCard
+                top_tags = ", ".join(t["tag"] for t in summary["top_tags"][:5])
+                summary_card = InfoCard(
+                    source_book_id=book_id,
+                    content=f"【{category}分类摘要】共{summary['count']}张卡片，平均有用度{summary['avg_utility']}，"
+                            f"高频标签: {top_tags or '无'}",
+                    card_sub_type=f"auto_summary_{category}",
+                    entropy_score=0.2,
+                    utility_score=0.9,
+                )
+                summary_card.tags = ["auto_summary", f"category_{category}"]
+                await self.indexer.save_card(summary_card)
+                logger.info("[Quantifier] 已更新 %s 分类摘要卡（%d 张卡片）", category, summary["count"])

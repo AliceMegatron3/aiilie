@@ -58,7 +58,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { api } from '../api'
+import { api, unwrap } from '../api'
 
 defineEmits(['close'])
 
@@ -79,9 +79,10 @@ onMounted(async () => {
       backendStatus.value = 'OK'
       backendStatusMsg.value = `OK (HTTP 200)`
 
-      const globalState = res.data.global_state || 'UNKNOWN'
+      const st = unwrap<any>(res) || {}
+      const globalState = st.global_state || 'UNKNOWN'
       systemState.value = 'OK'
-      systemStateMsg.value = `${globalState} - ${JSON.stringify(res.data.health_report || {}).substring(0, 80)}`
+      systemStateMsg.value = `${globalState} - ${JSON.stringify(st.health_report || {}).substring(0, 80)}`
     }
   } catch (error) {
     backendStatus.value = 'Error'
@@ -98,11 +99,12 @@ onMounted(async () => {
   // 2. 检测队列服务
   try {
     const res = await api.system.queue()
+    const q = unwrap<any>(res) || {}
     queueStatus.value = 'OK'
-    queueStatusMsg.value = `排队任务: ${res.data.pending_tasks_count || 0} | 当前执行: ${res.data.active_task_id || 'N/A'}`
+    queueStatusMsg.value = `排队任务: ${q.pending_tasks_count || 0} | 当前执行: ${q.active_task_id || 'N/A'}`
 
     // 3. 检测 Batch1 引擎
-    const batch1 = res.data.batch1_engine
+    const batch1 = q.batch1_engine
     if (batch1 && batch1.mounted) {
       batch1Status.value = 'OK'
       batch1StatusMsg.value = `已挂载 | 队列: ${batch1.queue_size || 0} | 跟踪: ${batch1.tracked_tasks || 0}`

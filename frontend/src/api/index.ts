@@ -100,7 +100,20 @@ apiClient.interceptors.response.use(
   (response: any) => response,
   (error: any) => {
     let msg = error.response?.data?.detail || error.response?.data?.message || error.message
-    
+
+    // B 类收口：识别结构化 DISABLED 响应（501 + X-Feature-Status: disabled），
+    // 明确呈现"功能未接入/已禁用"，而非误判为"服务离线"或"业务异常"。
+    const isDisabled =
+      error.response?.status === 501 &&
+      error.response?.headers?.['x-feature-status'] === 'disabled'
+    if (isDisabled) {
+      const fb = error.response?.data || {}
+      msg = `功能未接入：${fb.feature || '未知功能'}（${fb.reason || 'provider_not_configured'}）`
+      error.message = msg
+      console.error('[API Disabled]', error.config?.method?.toUpperCase(), error.config?.url, msg)
+      return Promise.reject(error)
+    }
+
     // 差异化报错，禁用笼统的 network error
     if (!error.response || error.response.status >= 500) {
       if (error.code === 'ECONNABORTED' || error.message.includes('timeout') || error.code === 'ETIMEDOUT') {
@@ -147,6 +160,22 @@ export interface APIResponse<T> {
   message?: string;
   error_code?: number;
 }
+
+// ── 契约统一（7.8）──
+// 后端存在两种响应形态：
+//   ok()/fail()  → { success, data, message, error_code }
+//   旧裸返回      → { <业务字段>... }（部分端点尚未包 ok()）
+// unwrapData 是唯一解包入口：优先取 data 字段（envelope 形态），
+// 取不到则视为裸结构整体返回。所有前端调用应统一经 unwrapData，不再直接读 res.data。
+// `unwrap` 保留为向后兼容别名。
+export const unwrapData = <T = unknown>(res: { data: unknown }): T => {
+  const body = res?.data
+  if (body && typeof body === 'object' && 'data' in (body as object)) {
+    return (body as { data: T }).data
+  }
+  return body as T
+}
+export const unwrap = unwrapData
 
 export const api = {
   // ==========================================
@@ -308,6 +337,25 @@ export const api = {
   // ==========================================
   // 批次2：知识库 (Library)
   // ==========================================
+  ledger: {
+    documents: () => apiClient.get('/ledger/documents'),
+    document: (documentId: string) => apiClient.get(`/ledger/documents/${documentId}`),
+    evidence: (params: Record<string, unknown> = {}) => apiClient.get('/ledger/evidence', { params }),
+    metrics: (params: Record<string, unknown> = {}) => apiClient.get('/ledger/metrics', { params }),
+    laws: (params: Record<string, unknown> = {}) => apiClient.get('/ledger/laws', { params }),
+    validateLaw: (payload: Record<string, unknown>) => apiClient.post('/ledger/laws/validate', payload),
+    evaluateLaw: (payload: Record<string, unknown>, variables: Record<string, unknown> = {}) => apiClient.post('/ledger/laws/evaluate', payload, { params: variables }),
+    simulateLaws: (payload: Record<string, unknown>) => apiClient.post('/ledger/laws/simulate', payload),
+    simulateLawsSimpy: (payload: Record<string, unknown>) => apiClient.post('/ledger/laws/simulate-simpy', payload),
+    migrationRuns: () => apiClient.get('/ledger/migrate/runs'),
+    migrateLegacyCards: (dryRun = true) => apiClient.post('/ledger/migrate/legacy-cards', null, { params: { dry_run: dryRun } }),
+    saveLaw: (payload: Record<string, unknown>) => apiClient.post('/ledger/laws', payload),
+    branches: () => apiClient.get('/ledger/law-branches'),
+    createBranch: (payload: Record<string, unknown>) => apiClient.post('/ledger/law-branches', payload),
+    revisions: (branchId: string) => apiClient.get(`/ledger/law-branches/${branchId}/revisions`),
+    appendRevision: (branchId: string, payload: Record<string, unknown>) => apiClient.post(`/ledger/law-branches/${branchId}/revisions`, payload),
+  },
+
   library: {
     /** 导入新书（文本内容） */
     importBook: (title: string, content: string) => apiClient.post('/library/books/import', { title, content }),
@@ -322,18 +370,35 @@ export const api = {
     },
     /** 获取书库列表 */
     listBooks: () => apiClient.get('/library/books'),
+    /** 重命名书籍 */
+    renameBook: (book_id: string, title: string) => apiClient.put(`/library/books/${book_id}/rename`, { title }),
+    /** 删除书籍 */
+    deleteBook: (book_id: string) => apiClient.delete(`/library/books/${book_id}`),
     /** 启动书籍量化任务 */
-    quantize: (book_id: string, mode: string = 'both') => apiClient.post(`/library/books/${book_id}/quantize`, { mode }),
+    quantize: (book_id: string, mode: string = 'both', model?: string, extraction?: string, quantize_round?: number) =>
+      apiClient.post(`/library/books/${book_id}/quantize`, { mode, ...(model ? { model } : {}), ...(extraction ? { extraction } : {}), quantize_round: quantize_round || 1 }),
     /** 检索知识卡片 */
     searchCards: (params: any = {}) => apiClient.get('/library/cards/search', { params }),
     /** 获取卡片详情 */
     cardDetail: (card_id: string) => apiClient.get(`/library/cards/${card_id}/detail`),
+    /** 更新卡片 */
+    updateCard: (card_id: string, payload: any) => apiClient.put(`/library/cards/${card_id}`, payload),
+    /** 删除卡片 */
+    deleteCard: (card_id: string) => apiClient.delete(`/library/cards/${card_id}`),
     /** 获取书籍 Info Cards (带四象限过滤) */
       bookInfoCards: (book_id: string, minUtility: number, minEntropy: number) =>
       apiClient.get(`/library/books/${book_id}/info-cards`, { params: { min_utility: minUtility, min_entropy: minEntropy } }),
     /** 获取书籍 Data Cards (带四象限过滤) */
       bookDataCards: (book_id: string, minUtility: number, minEntropy: number) =>
       apiClient.get(`/library/books/${book_id}/data-cards`, { params: { min_utility: minUtility, min_entropy: minEntropy } }),
+    /** 知识炼制主链路（确定性，非 LLM 裁决）——段落→证据绑定→量化门→技能候选。
+     *  返回 candidate_id/session_id/status（含 FAILED/NEEDS_REVIEW）。Batch 2 闭环接线。 */
+    refineKnowledge: (payload: {
+      document_id: string; blocks: string[]; claims: any[];
+      skill_name?: string; run_id?: string; parser?: string; model?: string;
+    }) => apiClient.post('/library/knowledge/refine', payload),
+    /** 已入库量化主张（可回放），展示 candidate_id/metrics/provenance。 */
+    listKnowledgeClaims: () => apiClient.get('/library/knowledge/claims'),
   },
 
   // ==========================================
@@ -416,6 +481,23 @@ export const api = {
   // ==========================================
   // 批次5：全局调度中枢 (System)
   // ==========================================
+  poetry: {
+    analyze: (payload: Record<string, unknown>) => apiClient.post('/poetry/analyze', payload),
+  },
+
+  code: {
+    snapshot: (target = '.') => apiClient.get('/code/snapshot', { params: { target } }),
+    diff: (payload: Record<string, unknown>) => apiClient.post('/code/diff', payload),
+    stage: (payload: Record<string, unknown>) => apiClient.post('/code/stage', payload),
+    promote: (changeId: string, approvalId: string) => apiClient.post(`/code/promote/${changeId}`, { approval_id: approvalId }),
+    rollback: (changeId: string, approvalId: string) => apiClient.post(`/code/rollback/${changeId}`, { approval_id: approvalId }),
+    plan: (payload: Record<string, unknown>) => apiClient.post('/code/plan', payload),
+    run: (payload: Record<string, unknown>) => apiClient.post('/code/run', payload),
+    task: (taskId: string) => apiClient.get(`/code/tasks/${taskId}`),
+    state: (taskId: string) => apiClient.get(`/code/tasks/${taskId}/state`),
+    cancel: (taskId: string) => apiClient.post(`/code/tasks/${taskId}/cancel`),
+  },
+
   system: {
     /** 全局统一指令入口 */
     command: (command: string, options: JsonObject = {}, project_id: NullableString = null) =>
@@ -519,10 +601,19 @@ export const api = {
   // 插件管理 (Plugins)
   // ==========================================
   plugins: {
+    capabilities: () => apiClient.get('/plugins/capabilities'),
+    resolve: (payload: Record<string, unknown>) => apiClient.post('/plugins/resolve', payload),
+    trustPolicy: () => apiClient.get('/plugins/trust-policy'),
+    setTrustPolicy: (payload: Record<string, unknown>) => apiClient.put('/plugins/trust-policy', payload),
+    trustReport: (pluginId: string) => apiClient.get(`/plugins/${pluginId}/trust-report`),
+    approve: (pluginId: string, operator = 'author', signer?: string) => apiClient.post(`/plugins/${pluginId}/approve`, { operator, ...(signer ? { signer } : {}) }),
+    revoke: (pluginId: string, operator = 'author') => apiClient.post(`/plugins/${pluginId}/revoke`, { operator }),
     /** 列出已安装插件 */
     list: () => apiClient.get('/plugins'),
-    /** 安装插件 */
-    install: () => apiClient.post('/plugins/install'),
+    /** 安装插件（从本地目录或 zip 包） */
+    install: (source_path: string) => apiClient.post('/plugins/install', { source_path }),
+    /** 卸载插件 */
+    uninstall: (plugin_id: string) => apiClient.post('/plugins/uninstall', { plugin_id }),
   },
 
   // ==========================================
@@ -532,7 +623,7 @@ export const api = {
     /** 提交新经验 */
     submit: (exp_type: string, content: string) => apiClient.post('/experience/', { exp_type, content }),
     /** 获取经验列表 */
-    list: (status = null) => apiClient.get('/experience/', { params: { status } }),
+    list: (status: string | null = null) => apiClient.get('/experience/', { params: { status } }),
     /** 审批经验 */
     approve: (exp_id: string, is_approved: boolean) => apiClient.put(`/experience/${exp_id}/approval`, { is_approved }),
     /** 拉取量化提示词注入 */
@@ -546,6 +637,18 @@ export const api = {
     /** 获取执行计划 DAG */
     plan: (book_id: string, chapter_content: string, primary_model: string, worker_model: string) =>
       apiClient.post('/orchestrator/plan', { book_id, chapter_content, primary_model, worker_model }),
+  },
+
+  // ==========================================
+  // 多智能体小说闭环 (Novel Agent)
+  // ==========================================
+  novelAgent: {
+    /** 获取智能体行为插件状态 */
+    behaviorPlugins: () => apiClient.get('/plugins/behavior'),
+    /** 获取技能候选治理 */
+    skillCandidates: () => apiClient.get('/reflection/skills/candidates'),
+    /** 获取系统状态（含队列、任务） */
+    systemStatus: () => apiClient.get('/system/status'),
   },
 
   // ==========================================

@@ -26,6 +26,17 @@ def auto_isolated_env(monkeypatch, tmp_path):
     userprofile.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("APPDATA", str(appdata))
     monkeypatch.setenv("USERPROFILE", str(userprofile))
+
+    # 阶段A fail-closed 总开关已加入代码/插件执行入口。单元测试要验证执行引擎
+    # 本身的行为（compileall / 磁盘配额 / 输出上限等），故在测试环境显式开启，
+    # 使 execute()/JsonPluginRunner.run() 的纵深防御门控放行；外部 /run API 门控
+    # 由各自的集成/回归测试单独覆盖。
+    monkeypatch.setenv("AIILIE_CODE_EXECUTION_ENABLED", "true")
+    monkeypatch.setenv("AIILIE_PLUGINS_EXECUTION_ENABLED", "true")
+    # config_manager 在进程内一次性加载环境覆盖，需 reload 使上述开关生效。
+    from core.config_manager import config_manager
+
+    config_manager.reload()
     return tmp_path
 
 
@@ -50,3 +61,27 @@ def isolated_paths(tmp_path, monkeypatch):
     (tmp_path / "appdata").mkdir(parents=True, exist_ok=True)
     (tmp_path / "workspace").mkdir(parents=True, exist_ok=True)
     return tmp_path
+
+
+def flatten_api_router(router) -> list:
+    """把 FastAPI/Starlette(>=1.6) 的 APIRouter 递归展开为叶子路由对象。
+
+    新版 Starlette 的 api_router.routes 首层可能是 `_IncludedRouter`（无 .path/.methods），
+    需经 original_router.routes 递归展开后才能像旧版一样枚举端点路径。
+    """
+    leaves: list = []
+
+    def walk(routes_list) -> None:
+        for r in routes_list:
+            if hasattr(r, "path"):
+                leaves.append(r)
+                continue
+            origin = getattr(r, "original_router", None)
+            inner = getattr(origin, "routes", None) if origin is not None else None
+            if not inner:
+                inner = getattr(r, "routes", None)
+            if inner:
+                walk(inner)
+
+    walk(list(getattr(router, "routes", [])))
+    return leaves

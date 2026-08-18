@@ -22,8 +22,118 @@ rate_limiter:
 
 library:
   max_concurrent_quantize: 2
+  upload_max_mb: 20
+
+# ── Docling 可选生产接入（默认关闭，非必需运行时依赖） ──
+# docling 为重型可选依赖（含模型工件），不随主 requirements 安装。
+# 开启条件（满足后再把 enabled 翻为 true）：
+#   1) 手动安装：pip install docling
+#   2) config.yaml 设 docling.enabled=true，或环境变量 AIILIE_DOCLING_ENABLED=true
+#      （config_manager 自动映射；Dockerfile.enhanced 增强镜像已预装并开启）
+#   3) 生产环境建议选用增强镜像：docker build -f Dockerfile.enhanced -t no0_ai_backend:enhanced .
+# 开启后仅对 .pdf/.docx/.epub 生效，.txt/.md 仍走内置轻量解析器；
+# docling 未安装或解析失败时自动回退现有轻量解析器（默认行为不变）。
+docling:
+  # 总开关：false 时 ParserFactory 一律使用轻量解析器
+  enabled: false
+  # 页数上限：超过则截断并标记 truncated（provenance.truncated=true）
+  page_limit: 200
+  # CPU 线程数（docling 转换线程上限，尽力而为）
+  cpu_threads: 2
+  # 单次解析超时（秒），超时返回失败并携带原因
+  timeout_seconds: 120
+  # 并发解析数上限（asyncio.Semaphore，跨请求共享）
+  max_concurrency: 2
+  # 离线模式：true 时要求模型工件已在本地缓存目录，缺失则解析失败并提示预下载命令
+  offline: false
+  # 模型工件缓存目录；留空则默认 %APPDATA%/No0_AI_V4/data/docling_models
+  model_cache_dir: ""
+
+# ── 轻量解析器资源限制（方向报告 P1-2：页数/成员数/解压大小/超时） ──
+# 对内置 Txt/Pdf/Docx/Epub 解析器施加确定性资源上限，防止超大文档或
+# 恶意压缩包（zip bomb）拖垮宿主进程；触发限制时安全截断/拒绝而非崩溃。
+parser:
+  # 页数上限：PDF 仅解析前 N 页；超过标记 truncated
+  page_limit: 200
+  # EPUB 归档最大成员数：超过拒绝（防解压数量爆炸）
+  epub_max_members: 2000
+  # EPUB 单个成员解压后字节上限：超过拒绝该成员（防单文件膨胀）
+  epub_member_max_bytes: 10485760
+  # EPUB 全归档解压累计字节上限：超过拒绝剩余成员（防 zip bomb）
+  epub_max_decompressed_bytes: 52428800
+  # 单次解析总超时（秒）
+  timeout_seconds: 120
+
+
+# Ledger 权威切换（第二步）：authoritative 已开启，读取走 ledger_claims、
+# 写入经 LedgerReadiness 门禁 fail-closed；灰度稳定后已关闭旧 direct card write，
+# cards 表仅只读投影，业务写入走 Ledger（claims+outbox）。
+ledger:
+  read_mode: ledger
+  # 双读开启用于 readiness 观察（authoritative 已切换，灰度观察期）
+  dual_read_enabled: true
+  # 阶段C fail-closed：authoritative 仅在真实迁移 + reconciliation 通过 readiness
+  # 门禁后才由运维显式打开；新环境/容器默认保持 false，避免启动被迁移门禁阻断。
+  authoritative: false
+  allow_legacy_card_projection: false
   # 上传文件大小上限（MB）
   upload_max_mb: 20
+  # 量化提取策略: auto(LLM优先+规则兜底) / llm(仅LLM) / rule(仅规则)
+  quantize_extraction: auto
+
+# ── 受限代码执行资源档位 ──
+# 阶段A fail-closed：隔离 worker 建成前默认关闭执行能力。
+# 关闭后 /code/run 及正式 promote/rollback 返回 501 DISABLED，
+# 只读的 plan/diff/snapshot/stage 不受影响。
+code_execution:
+  enabled: false
+  default_profile: auto
+  # 操作系统级网络隔离策略（对 CodeTask 进程的可执行文件施加临时出站防火墙规则）：
+  #   off        → 不施加限制（默认，保持现状）
+  #   local_only → 阻断对本地子网的出站（netsh remoteip=localsubnet）
+  #   full       → 阻断全部出站（netsh remoteip=any）
+  # 需要 Windows 管理员权限；无法施加时任务报告标记 network_isolation: "not_enforced"。
+  network_policy: "off"
+  host_reserve:
+    cpu_cores: 2
+    memory_mb: 4096
+    disk_gb: 8
+  profiles:
+    low:
+      cpu_cores: 1
+      memory_mb: 128
+      disk_gb: 1
+      max_processes: 4
+      timeout_seconds: 300
+      cpu_time_seconds: 300
+    standard:
+      cpu_cores: 6
+      memory_mb: 8192
+      disk_gb: 20
+      max_processes: 8
+      timeout_seconds: 900
+      cpu_time_seconds: 900
+    high:
+      cpu_cores: 8
+      memory_mb: 16384
+      disk_gb: 40
+      max_processes: 16
+      timeout_seconds: 1800
+      cpu_time_seconds: 1800
+
+# ── 智能体受控公网抓取 ──
+# 不授予 CodeTask 或第三方插件任意网络权限。
+web_access:
+  enabled: true
+  max_response_bytes: 1048576
+  timeout_seconds: 15
+  max_redirects: 0
+  max_requests_per_minute: 20
+
+# ── 插件（阶段A fail-closed）──
+# 未完成隔离 worker / 内存预算前，禁止执行任何插件；只保留清单/解析/安装。
+plugins:
+  execution_enabled: false
 
 # ── 项目与文档（功能补全新增） ──
 project:
@@ -99,6 +209,12 @@ feature:
   idle_index_enable: true
   # ── 第十部分：多智能体小说创作 总开关（总控）──
   # 关闭后多智能体自学习全部停止，多Agent功能不受影响（回退原创作链路）
+  # 开启条件（文档化：满足后再翻转，避免未经验证的线上行为变更；默认保持 false）：
+  #  1) SkillGovernance 闭环验证通过：开启前先跑 tests/test_skill_governance_closure.py 等治理闭环测试；
+  #  2) Ledger 权威切换灰度稳定：ledger.authoritative 已通过 readiness 门禁，旧卡片投影冻结为只读；
+  #  3) 旧投影已全量对账：services/skill_projection_reconcile.py 的 list_projection_gaps 缺口清零后，
+  #     再以 reconcile_old_projections 幂等导入（见 tests/test_skill_projection_reconcile.py）。
+  #  开关关闭时，app.state.skill_projection_reconcile.list_gaps() 仍可只读观察缺口，不写库。
   novel_multi_agent_enable: false
   emotion_quantify_enable: true
   # 架构整改 1.1：分支版本系统总开关。

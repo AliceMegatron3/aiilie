@@ -125,11 +125,12 @@ def test_plugin_manager_still_renders_planner_prompt():
 
 def test_ensemble_input_endpoints_mounted():
     from api.api_router import api_router
+    from tests.conftest import flatten_api_router
 
     # WebSocket 路由无 methods 属性,统一用 getattr 兜底
     paths = {
         (tuple(sorted(getattr(r, "methods", None) or ())), r.path)
-        for r in api_router.routes
+        for r in flatten_api_router(api_router)
     }
     flat = {p for _, p in paths}
     assert any(p.endswith("/tracks") for p in flat)

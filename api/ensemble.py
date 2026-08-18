@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from api.deps import get_db, verify_token
+from core.response import ok
 from services.ensemble import EnsembleService
 
 router = APIRouter(dependencies=[Depends(verify_token)])
@@ -27,13 +28,13 @@ async def _service(project_id: str, db=Depends(get_db)) -> EnsembleService:
 
 @router.get("/ensemble/projects/{project_id}/relationships")
 async def list_relationships(project_id: str, svc: EnsembleService = Depends(_service)):
-    return {"relationships": await svc.current_relationships(project_id)}
+    return ok({"relationships": await svc.current_relationships(project_id)})
 
 
 @router.get("/ensemble/projects/{project_id}/tracks")
 async def list_tracks(project_id: str, svc: EnsembleService = Depends(_service)):
     tracks = await svc.get_tracks(project_id)
-    return {
+    return ok({
         "tracks": [
             {
                 "character_id": t.character_id, "name": t.name, "position": t.position,
@@ -41,14 +42,14 @@ async def list_tracks(project_id: str, svc: EnsembleService = Depends(_service))
             }
             for t in tracks
         ]
-    }
+    })
 
 
 @router.post("/ensemble/projects/{project_id}/events/{event_id}/close")
 async def close_event(project_id: str, event_id: str, svc: EnsembleService = Depends(_service)):
     """事件清算:挂账按余额深浅回摆结晶,派系解散,返回回摆提醒清单。"""
     reminders = await svc.close_event(project_id, event_id)
-    return {"reminders": reminders, "count": len(reminders)}
+    return ok({"reminders": reminders, "count": len(reminders)})
 
 
 @router.get("/ensemble/projects/{project_id}/tracks/{character_id}/history")
@@ -57,7 +58,7 @@ async def get_track_history(
 ):
     """单角色全历史快照(按章号升序),展示角色时间线状态。"""
     history = await svc.get_track_history(project_id, character_id)
-    return {"character_id": character_id, "history": [t.model_dump() for t in history]}
+    return ok({"character_id": character_id, "history": [t.model_dump() for t in history]})
 
 
 @router.get("/ensemble/projects/{project_id}/tracks/{character_id}/at-chapter")
@@ -69,7 +70,7 @@ async def get_track_at_chapter(
     track = await svc.get_track_at_chapter(project_id, character_id, chapter)
     if track is None:
         raise HTTPException(status_code=404, detail="该角色在该章号无轨道快照")
-    return {"chapter": chapter, "track": track.model_dump()}
+    return ok({"chapter": chapter, "track": track.model_dump()})
 
 
 # ── 录入端点(债4:让群像数据可冷启动) ─────────────────────────
@@ -97,7 +98,7 @@ async def upsert_track(
 
     track = LifeTrack(project_id=project_id, **req.model_dump())
     saved = await svc.upsert_track(track)
-    return {"track": saved.model_dump()}
+    return ok({"track": saved.model_dump()})
 
 
 class BaselineRequest(BaseModel):
@@ -114,7 +115,7 @@ async def set_relationship_baseline(
     if req.character_a == req.character_b:
         raise HTTPException(status_code=422, detail="不能为同一角色设定关系基线")
     entry = await svc.set_baseline(project_id, req.character_a, req.character_b, req.baseline)
-    return {"pair": entry.pair, "baseline": entry.baseline, "current": entry.current()}
+    return ok({"pair": entry.pair, "baseline": entry.baseline, "current": entry.current()})
 
 
 class EventDeltaRequest(BaseModel):
@@ -135,7 +136,7 @@ async def record_event_delta(
     entry = await svc.record_event_delta(
         project_id, req.character_a, req.character_b, req.event_id, req.delta, req.reason
     )
-    return {"pair": entry.pair, "current": entry.current(), "baseline": entry.baseline}
+    return ok({"pair": entry.pair, "current": entry.current(), "baseline": entry.baseline})
 
 
 class VoiceUpsertRequest(BaseModel):
@@ -155,4 +156,4 @@ async def upsert_voice(
 
     voice = VoiceCard(project_id=project_id, **req.model_dump())
     saved = await svc.upsert_voice(voice)
-    return {"voice": saved.model_dump()}
+    return ok({"voice": saved.model_dump()})

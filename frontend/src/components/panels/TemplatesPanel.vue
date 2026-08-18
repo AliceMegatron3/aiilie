@@ -17,8 +17,17 @@
 
     <!-- 模板列表 -->
     <div v-else class="space-y-2">
+      <!-- 分类筛选按钮 -->
+      <div class="flex flex-wrap gap-1 mb-3">
+        <button v-for="cat in categories" :key="cat"
+          class="text-[10px] px-2 py-0.5 rounded transition-colors"
+          :class="selectedCategory === cat ? 'bg-indigo-600 text-white' : 'bg-[#2a2a30] text-gray-400 hover:text-gray-200'"
+          @click="selectedCategory = selectedCategory === cat ? '' : cat"
+        >{{ cat }}</button>
+      </div>
+
       <div
-        v-for="tpl in templates"
+        v-for="tpl in filteredTemplates"
         :key="tpl.template_id"
         class="p-2.5 bg-[#18181b] rounded-lg cursor-pointer hover:border-gray-500 border border-[#2a2a30] transition-colors"
         :class="{ 'border-indigo-500 bg-[#23232b]': appStore.selectedTemplateId === tpl.template_id }"
@@ -48,6 +57,17 @@ import PromptTemplateEditor from './PromptTemplateEditor.vue'
 const appStore = useAppStore()
 const templates = ref([])
 const isLoading = ref(false)
+const selectedCategory = ref('')
+
+const categories = computed(() => {
+  const cats = new Set(templates.value.map((t) => t.category).filter(Boolean))
+  return [...cats].sort()
+})
+
+const filteredTemplates = computed(() => {
+  if (!selectedCategory.value) return templates.value
+  return templates.value.filter((t) => t.category === selectedCategory.value)
+})
 
 const selectedTemplate = computed(() => {
   if (!appStore.selectedTemplateId) return null

@@ -1,17 +1,16 @@
-# ⚠️ 安全提示：请勿在此文件明文保存 API 密钥。
-# 推荐通过环境变量 AIILIE_DEEPSEEK_API_KEY 注入，或使用下方 api_key 占位符。
+# 安全说明：此文件在 Git 中仅跟踪非敏感字段。api_key 一律通过环境变量
+# AIILIE_DEEPSEEK_API_KEY 注入（config_manager 优先级最高），不得在此明文填写。
+# 历史版本曾把明文密钥提交到仓库，已在供应商侧轮换并从此文件清除；
+# 若仍需持久化密钥，请写入 .env 并由启动脚本注入，禁止提交。
 deepseek:
-  # 中转站实测(20260816):OpenAI兼容端点必须带 /v1,否则请求打到网站首页返回HTML。
-  # 备用加速线路: https://api.inferaiapi.com/v1 (遇524超时可切换)
   api_base: https://inferaiapi.com/v1
-  api_key: ""  # 请通过环境变量 AIILIE_DEEPSEEK_API_KEY 注入，或在此填写（注意勿提交到版本库）
+  # 真实密钥请通过环境变量 AIILIE_DEEPSEEK_API_KEY 注入，留空则云端功能自动禁用
+  api_key: ""
   model_name: deepseek-v4-flash
   enable_switch: true
   request_timeout: 60
   max_retry_times: 2
-  # 第三部分（补丁F）：true 时 ModelDispatcher 自动跳过会话池（裸调用，不拼接历史）
-  disable_session_pool: false
 ollama:
   api_base: http://127.0.0.1:11434
-  model_name: deepseek-r1:7b
+  model_name: qwen3-pipeline:latest
   enable_switch: true

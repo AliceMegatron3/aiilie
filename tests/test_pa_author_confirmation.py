@@ -62,7 +62,8 @@ def test_autosave_path_does_not_write_signals(isolated_paths):
 
 def test_confirmation_endpoints_mounted():
     from api.api_router import api_router
+    from tests.conftest import flatten_api_router
 
-    paths = {r.path for r in api_router.routes}
+    paths = {r.path for r in flatten_api_router(api_router)}
     assert any(p.endswith("/generation-baseline") for p in paths)
     assert any(p.endswith("/author-confirm") for p in paths)

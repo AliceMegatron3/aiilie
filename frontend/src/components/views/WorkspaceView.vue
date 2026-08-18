@@ -59,7 +59,7 @@ const fmtSize = (s: number) => s == null ? '' : s >= 1024 * 1024 ? `${(s / 1024 
 async function loadInfo() {
   try {
     const res = await api.workspace.info()
-    wsInfo.value = res.data || {}
+    wsInfo.value = res.data?.data || {}
   } catch {}
 }
 
@@ -67,8 +67,8 @@ async function browse(path: string) {
   loading.value = true
   try {
     const res = await api.workspace.browse(path)
-    entries.value = res.data?.entries || []
-    currentRel.value = res.data?.relative || ''
+    entries.value = res.data?.data?.entries || []
+    currentRel.value = res.data?.data?.relative || ''
   } catch (e: any) {
     entries.value = []
     alert(e?.response?.data?.detail ?? '浏览失败')
@@ -91,7 +91,7 @@ async function doImport() {
   if (!importPath.value.trim()) { alert('请输入工作区内文件夹路径'); return }
   try {
     const res = await api.workspace.import(importPath.value.trim())
-    importResult.value = `导入成功: ${res.data?.message || res.data?.project_id || '已创建'}`
+    importResult.value = res.data?.message || res.data?.data?.project_id || '已创建'
   } catch (e: any) { alert(e?.response?.data?.detail ?? '导入失败') }
 }
 

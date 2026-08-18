@@ -11,6 +11,18 @@ jinja2>=3.1.0
 pyinstaller>=6.22.0
 pywebview>=6.2.1
 croniter>=2.0.0
+dirtyjson>=1.0.8
+python-multipart>=0.0.20
+pypdf>=5.0.0
+python-docx>=1.1.2
 
-# 专项5修复：测试超时保护（防止测试挂起无限阻塞 CI/回归）
+# ── 可选增强依赖（生产接入，不默认安装，避免破坏轻量安装） ──
+# Docling 结构化文档解析（表格/页码/版面），需要时手动启用：
+#   pip install "docling>=1.0"
+# 并参考 config/config.yaml 的 docling.enabled 分区（默认关闭）。
+# 生产增强推荐使用增强镜像：Dockerfile.enhanced（已预装 docling 并设
+# AIILIE_DOCLING_ENABLED=true）；离线部署需预下载模型工件到
+# docling.model_cache_dir（默认 %APPDATA%/No0_AI_V4/data/docling_models）。
+
+# 测试工具（生产部署可不安装）
 pytest-timeout>=2.3.1

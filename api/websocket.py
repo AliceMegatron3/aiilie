@@ -34,6 +34,8 @@ class ConnectionManager:
     def __init__(self) -> None:
         self.active_connections: Dict[str, Set[WebSocket]] = {}
         self.task_subscribers: Dict[str, Set[WebSocket]] = {}
+        self.task_event_sequences: Dict[str, int] = {}
+        self.task_event_history: Dict[str, list[dict[str, Any]]] = {}
 
     async def connect(self, websocket: WebSocket, session_id: str) -> None:
         await websocket.accept()
@@ -74,19 +76,22 @@ class ConnectionManager:
     ) -> None:
         """向订阅该任务的所有连接推送流式进度事件。"""
         subscribers = list(self.task_subscribers.get(task_id, set()))
-        if not subscribers:
-            return
-        payload = json.dumps(
-            {"type": "task_progress", "task_id": task_id, **event},
-            ensure_ascii=False,
-        )
+        seq = self.task_event_sequences.get(task_id, 0) + 1
+        self.task_event_sequences[task_id] = seq
+        enriched = {"type": "task_progress", "task_id": task_id, "sequence": seq, "timestamp": time.time(), **event}
+        history = self.task_event_history.setdefault(task_id, [])
+        history.append(enriched)
+        del history[:-100]
+        payload = json.dumps(enriched, ensure_ascii=False)
         for connection in subscribers:
             try:
                 await connection.send_text(payload)
             except Exception as e:
                 logger.error("WebSocket 推送任务进度失败: %s", e)
 
-    # ── 会话房间 ───────────────────────────────────────────────
+    def task_history(self, task_id: str, after_sequence: int = 0) -> list[dict[str, Any]]:
+        return [item for item in self.task_event_history.get(task_id, []) if int(item.get("sequence", 0)) > after_sequence]
+
     async def send_progress_to_session(
         self, session_id: str, task_id: str, stage: str, message: str, progress: str
     ) -> None:

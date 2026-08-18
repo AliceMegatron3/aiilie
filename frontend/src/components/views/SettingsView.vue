@@ -125,13 +125,17 @@
           </div>
           <div>
             <label class="block text-sm font-medium text-gray-300 mb-1">本地模型名称 (Local Model)</label>
-            <input 
-              v-model="form.ollama.model_name" 
-              type="text" 
-              class="w-full bg-[#18181b] border border-[#3f3f46] rounded px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
-              :class="{ 'border-red-700': errors.ollama_model_name }"
-              placeholder="qwen2.5:7b"
-            >
+            <div class="flex gap-2">
+              <select
+                v-model="form.ollama.model_name"
+                class="flex-1 bg-[#18181b] border border-[#3f3f46] rounded px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                :class="{ 'border-red-700': errors.ollama_model_name }"
+              >
+                <option value="" disabled>选择已检测到的模型...</option>
+                <option v-for="m in ollamaModels" :key="m.id" :value="m.name">{{ m.name }}</option>
+              </select>
+              <button @click="fetchOllamaModels" class="text-xs bg-[#2a2a30] hover:bg-gray-600 text-gray-300 rounded px-2 py-1 shrink-0">刷新</button>
+            </div>
             <p v-if="errors.ollama_model_name" class="text-xs text-red-400 mt-1">{{ errors.ollama_model_name }}</p>
           </div>
         </div>
@@ -159,7 +163,7 @@
 
 <script setup>
 import { ref, onMounted, reactive, computed } from 'vue'
-import { api } from '../../api'
+import { api, unwrap } from '../../api'
 import { toast } from '../../utils/toast'
 import { useThemeStore } from '../../stores/useThemeStore'
 
@@ -177,6 +181,16 @@ const isSaving = ref(false)
 const isPinging = ref(false)
 const pingResult = ref('')
 const errors = reactive({})
+const ollamaModels = ref([])
+
+const fetchOllamaModels = async () => {
+  try {
+    const res = await api.models.ollama()
+    ollamaModels.value = res.data?.data || []
+  } catch (e) {
+    ollamaModels.value = []
+  }
+}
 
 const form = reactive({
   deepseek: {
@@ -221,9 +235,10 @@ const validate = () => {
 const loadSettings = async () => {
   try {
     const res = await api.settings.getLLM()
-    if (res.data) {
-      Object.assign(form.deepseek, res.data.deepseek || {})
-      Object.assign(form.ollama, res.data.ollama || {})
+    const s = unwrap<any>(res)
+    if (s) {
+      Object.assign(form.deepseek, s.deepseek || {})
+      Object.assign(form.ollama, s.ollama || {})
     }
   } catch (e) {
     console.error('加载设置失败', e)
@@ -240,6 +255,10 @@ const saveSettings = async () => {
   isSaving.value = true
   try {
     await api.settings.saveLLM(form)
+    // 同步回写 agentStore
+    const { useAgentStore } = await import('../../stores/agentStore')
+    const agentStore = useAgentStore()
+    if (form.ollama.model_name) agentStore.setModels(form.deepseek.model_name || agentStore.primaryModel, form.ollama.model_name)
     toast.success('配置保存成功！')
   } catch (e) {
     console.error('保存设置失败', e)
@@ -255,7 +274,7 @@ const testConnectivity = async () => {
   pingResult.value = ''
   try {
     const res = await api.settings.pingDeepseek()
-    const data = res.data || {}
+    const data = unwrap<any>(res) || {}
     if (data.status === 'ok') {
       const keyStatus = data.has_api_key ? '已配置密钥' : '未配置密钥'
       const enStatus = data.is_enabled ? '已启用' : '未启用'
@@ -272,5 +291,6 @@ const testConnectivity = async () => {
 
 onMounted(() => {
   loadSettings()
+  fetchOllamaModels()
 })
 </script>

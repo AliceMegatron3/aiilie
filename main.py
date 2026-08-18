@@ -13,6 +13,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
 from core.bootstrap import create_lifespan
@@ -35,6 +36,29 @@ def _runtime_value(name: str, config_key: str, default: Any, cast: type) -> Any:
         return cast(raw)
     except (TypeError, ValueError):
         return default
+
+
+# 全局请求体上限（阶段B：防超大请求体耗尽内存/成本）。对超大 Content-Length 直接 413；
+# 上传文件大小由各端点 upload_max_mb 独立限制，非 JSON body 走分块时依赖 stream 层的既有配额。
+APP_MAX_BODY_BYTES = 16 * 1024 * 1024
+
+
+class BodySizeLimitMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        content_length = request.headers.get("content-length")
+        if content_length:
+            try:
+                if int(content_length) > APP_MAX_BODY_BYTES:
+                    return JSONResponse(
+                        status_code=413,
+                        content=fail(
+                            "请求体过大（超过上限 %dMB）" % (APP_MAX_BODY_BYTES // (1024 * 1024)),
+                            error_code="BODY_TOO_LARGE",
+                        ),
+                    )
+            except (TypeError, ValueError):
+                pass
+        return await call_next(request)
 
 
 def _register_exception_handlers(app: FastAPI) -> None:
@@ -67,6 +91,8 @@ def _register_exception_handlers(app: FastAPI) -> None:
 def create_app() -> FastAPI:
     app = FastAPI(title="No.0 AI V4.0", version=VERSION, lifespan=create_lifespan())
     _register_exception_handlers(app)
+    # 阶段B：请求体大小上限（放在最外层，优先于业务处理）
+    app.add_middleware(BodySizeLimitMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["http://127.0.0.1:5173", "http://localhost:5173", "http://127.0.0.1:8000", "http://localhost:8000"],

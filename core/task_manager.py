@@ -18,7 +18,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Callable, Coroutine
 from core.database import DatabaseManager
-from models.task import BasePipelineTask, CommandTask, LearningTask, QuantizeTask, ReflectionTask
+from models.task import BasePipelineTask, CodeExecutionTask, CommandTask, LearningTask, QuantizeTask, ReflectionTask
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +39,8 @@ def _parse_task_dict(task_dict: dict[str, Any]) -> BasePipelineTask:
         return LearningTask(**task_dict)
     elif task_type == "quantize":
         return QuantizeTask(**task_dict)
+    elif task_type == "code_execution":
+        return CodeExecutionTask(**task_dict)
     elif task_type == "reflection":
         return ReflectionTask(**task_dict)
     else:
@@ -152,13 +154,16 @@ class PersistentTaskQueue:
             try:
                 # 执行具体业务逻辑（由外部传入 handler 负责执行 Pipeline）
                 await handler(task)
-                # 标记为 COMPLETED
-                await self.update_task_status(task_id, "COMPLETED")
+                # 处理器可能已因运行中取消把任务转入终态；不得覆盖该结果。
+                current = await self.db.get_task(task_id)
+                if current is None or current.get("status") != "CANCELLED":
+                    await self.update_task_status(task_id, "COMPLETED")
             except Exception as e:
                 logger.exception("[Worker-%d] 任务 %s 执行失败", worker_id, task_id)
-                await self.update_task_status(task_id, "FAILED", str(e))
-                # 增加重试计数
-                await self.db.increment_retry_count(task_id)
+                current = await self.db.get_task(task_id)
+                if current is None or current.get("status") != "CANCELLED":
+                    await self.update_task_status(task_id, "FAILED", str(e))
+                    await self.db.increment_retry_count(task_id)
             finally:
                 self._queue.task_done()
 

@@ -16,10 +16,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from models.system import CommandRequest, SystemState
 from core.state_manager import StateManager
-from core.response import ok
+from core.response import fail, ok
 from services.priority_queue import PriorityTaskQueue
 from services.system_monitor import SystemMonitor
 from services.global_router import GlobalRouter
+from services.docling_guard import check_docling_readiness
 from api.deps import _state, get_db, verify_token
 
 logger = logging.getLogger(__name__)
@@ -84,15 +85,18 @@ async def get_command_result(
     empty = not (result or "").strip()
     if empty:
         logger.warning("[System] 兜底查询发现空产出 task=%s", task_id)
-    return {
-        "task_id": task_id,
-        "session_id": record.get("session_id"),
-        "project_id": record.get("project_id"),
-        "user_query": record.get("user_query"),
-        "ai_result": result,
-        "empty_result": empty,
-        "timestamp": record.get("timestamp"),
-    }
+    return ok(
+        {
+            "task_id": task_id,
+            "session_id": record.get("session_id"),
+            "project_id": record.get("project_id"),
+            "user_query": record.get("user_query"),
+            "ai_result": result,
+            "empty_result": empty,
+            "timestamp": record.get("timestamp"),
+        },
+        message="success",
+    )
 
 
 @router.get("/status", summary="监控大盘：拉取系统级健康探针及状态")
@@ -106,10 +110,13 @@ async def get_system_status(
     current_state = await state_manager.get_state()
     health_report = system_monitor.get_health_report()
     
-    return {
-        "global_state": current_state.value,
-        "health_report": health_report
-    }
+    return ok(
+        {
+            "global_state": current_state.value,
+            "health_report": health_report,
+        },
+        message="success",
+    )
 
 
 @router.get("/queue", summary="队列大屏：查看缓冲任务漏斗的排队情况")
@@ -131,11 +138,25 @@ async def get_system_queue(
     else:
         batch1_info = {"mounted": False}
 
-    return {
-        "pending_tasks_count": task_queue.qsize(),
-        "active_task_id": task_queue.current_task_id,
-        "batch1_engine": batch1_info,
-    }
+    return ok(
+        {
+            "pending_tasks_count": task_queue.qsize(),
+            "active_task_id": task_queue.current_task_id,
+            "batch1_engine": batch1_info,
+        },
+        message="success",
+    )
+
+
+@router.get("/docling/readiness", summary="Docling 可选解析器生产 readiness 检查")
+async def get_docling_readiness() -> dict[str, Any]:
+    """
+    只读端点：返回 docling 可选解析器在生产环境的就绪状态。
+    字段：enabled（开关）/ installed（是否安装）/ offline_ready（离线模型工件是否就绪）/
+    limits（页数/CPU线程/超时/并发上限）/ errors（未就绪原因列表）。
+    完整路径：GET /api/v1/system/docling/readiness
+    """
+    return ok(check_docling_readiness(), message="docling readiness 检查完成")
 
 
 @router.post("/interrupt", summary="紧急核爆开关：无视状态强制中断系统")
@@ -148,7 +169,7 @@ async def interrupt_system(
     """
     await state_manager.set_state(SystemState.IDLE)
     logger.warning("[API] 用户人工按下中断红钮，系统独占锁被强制释放回 IDLE，正在强行阻断下游管线！")
-    return {"message": "全局中断信号已广播，系统状态强制复位空闲。"}
+    return ok(None, message="全局中断信号已广播，系统状态强制复位空闲。")
 
 class ContextLockRequest(BaseModel):
     project_id: str | None
@@ -165,8 +186,8 @@ async def lock_context(
     """
     await state_manager.set_context_lock(req.project_id)
     if req.project_id:
-        return {"message": f"上下文已安全锁定至子项目: {req.project_id}"}
-    return {"message": "上下文锁定已解除，恢复全局可见性。"}
+        return ok(None, message=f"上下文已安全锁定至子项目: {req.project_id}")
+    return ok(None, message="上下文锁定已解除，恢复全局可见性。")
 
 
 # ==========================================
@@ -255,7 +276,7 @@ async def get_gc_report(task_id: str, request: Request) -> dict[str, Any]:
 async def get_chat_history(
     session_id: str,
     request: Request
-) -> list[dict[str, Any]]:
+) -> dict[str, Any]:
     """
     读取指定会话的完整历史记录供前端对话面板加载。
     """
@@ -270,9 +291,9 @@ async def get_chat_history(
                 db = global_router.project_manager.db
         if db is None:
             logger.error("[API] 数据库实例不可用，无法拉取聊天记录")
-            return []
+            return ok([], message="success")
         records = await db.get_chat_history(session_id)
-        return records
+        return ok(records, message="success")
     except Exception as e:
         logger.error(f"[API] 拉取聊天记录失败: {e}")
         raise HTTPException(status_code=500, detail="获取聊天记录失败")
@@ -295,7 +316,7 @@ async def get_subconscious_stream(
     files = glob.glob(search_pattern, recursive=True)
     
     if not files:
-        return {"success": True, "content": "暂无活跃的发散思考..."}
+        return ok({"content": "暂无活跃的发散思考..."}, message="success")
         
     # 按修改时间排序，取最新的一个
     latest_file = max(files, key=os.path.getmtime)
@@ -307,6 +328,10 @@ async def get_subconscious_stream(
         if len(content) > 5000:
             content = "..." + content[-5000:]
             
-        return {"success": True, "content": content, "file": os.path.basename(latest_file)}
+        return ok({"content": content, "file": os.path.basename(latest_file)}, message="success")
     except Exception as e:
-        return {"success": False, "content": f"读取潜意识碎片失败: {e}"}
+        return fail(
+            f"读取潜意识碎片失败: {e}",
+            error_code="SUBCONSCIOUS_READ_ERROR",
+            data={"content": f"读取潜意识碎片失败: {e}"},
+        )

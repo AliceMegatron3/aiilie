@@ -20,4 +20,110 @@ jobs:
         run: uv sync --frozen
 
       - name: Run pytest
-        run: uv run python -m pytest tests/ -q --disable-warnings
+        run: uv run python -m pytest tests/ -q --disable-warnings --ignore=chapter3
+
+      - name: Phase A security regression (fail-closed gates)
+        run: uv run python -m pytest tests/test_phaseA_security_gates.py tests/test_deployment_hardening.py tests/test_security.py -q
+
+      - name: Scan for committed secrets
+        run: |
+          echo "Scanning tracked text files for leaked credentials..."
+          # 命中即视为密钥泄漏，直接 fail（禁止把疑似密钥随提交进仓库）
+          if grep -RInE --include='*.py' --include='*.yaml' --include='*.yml' --include='*.json' --include='*.toml' --include='*.txt' --include='*.env.example' \
+              '(sk-[A-Za-z0-9]{24,}|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|BEGIN (RSA |DSA |EC |OPENSSH )?PRIVATE KEY|xox[baprs]-[A-Za-z0-9-]{10,})' \
+              --exclude-dir=.git --exclude-dir=.venv --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=data \
+              . ; then
+            echo "ERROR: possible secret(s) committed. Rejecting build."
+            exit 1
+          fi
+          echo "No obvious secrets found in tracked text files."
+
+      - name: Audit Python dependencies
+        run: uv run pip check
+
+      - name: Compile Python modules
+        run: uv run python -m compileall -q api core models services strategies
+
+      - name: Verify frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run type-check
+          npm test
+          npm run build
+
+  # Windows 实机验证：Job Object 隔离 / EXE 构建（独立 job，不影响 ubuntu 流程）
+  windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Compile Python modules
+        run: uv run python -m compileall -q api core models services strategies
+
+      - name: Windows isolation regression (Job Object / disk quota / resource profile / network)
+        run: uv run python -m pytest tests/test_windows_job.py tests/test_code_execution.py tests/test_resource_profile.py tests/test_network_isolation.py -q
+
+      - name: PyInstaller availability
+        run: uv run pyinstaller --version
+
+      - name: Build service tests + real EXE smoke
+        shell: pwsh
+        env:
+          BUILD_SERVICE_SMOKE: "1"
+        run: uv run python -m pytest tests/test_build_service.py -q
+
+      - name: Install cosign (Windows)
+        uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: 'v2.2.4'
+
+      # Windows 产物签名回归：真实 cosign 在 Windows runner 上 sign-blob/verify-blob
+      # （临时密钥，不上传 Rekor；生产发布改用 OIDC：cosign sign-blob --identity-token）
+      - name: Windows cosign signing regression (real tool)
+        run: uv run python -m pytest tests/test_cosign_verifier.py -q
+
+  # Cosign/Sigstore 发布签名回归（独立 job，不影响 ubuntu/windows 主流程）
+  # 生产发布签名应使用 OIDC 身份（Fulcio 证书 + Rekor 透明日志）：
+  #   cosign sign-blob --identity-token $ID_TOKEN ...
+  # 此处仅演示 key 对签名/验证流程，且显式 --tlog-upload=false，不上传公共透明日志。
+  cosign:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: 'v2.2.4'
+
+      - name: Sign + verify a demo blob (ephemeral key, not committed)
+        shell: bash
+        run: |
+          printf 'demo signed artifact\n' > signed-artifact.txt
+          COSIGN_PASSWORD='' cosign generate-key-pair --output-key-pair demo-cosign
+          COSIGN_PASSWORD='' cosign sign-blob --tlog-upload=false \
+            --key demo-cosign.key --output-signature signed-artifact.txt.sig signed-artifact.txt
+          cosign verify-blob --key demo-cosign.pub \
+            --signature signed-artifact.txt.sig signed-artifact.txt
+
+      - name: Run cosign verifier tests (pure logic + real tool)
+        run: uv run python -m pytest tests/test_cosign_verifier.py -q
+
+      - name: Report cosign signing status
+        if: always()
+        run: 'echo "cosign demo key signing/verification done (production uses OIDC: cosign sign-blob --identity-token ...)"'

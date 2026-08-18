@@ -19,6 +19,8 @@ dependencies = [
     "croniter>=2.0.0",
     "dirtyjson>=1.0.8",
     "python-multipart>=0.0.20",
+    "pypdf>=5.0.0",
+    "python-docx>=1.1.2",
 ]
 
 [tool.pytest.ini_options]

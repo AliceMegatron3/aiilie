@@ -33,7 +33,10 @@ export class ProcessManager {
   }
 
   startBackend() {
-    if (this.isShuttingDown) return;
+    if (this.isShuttingDown || process.env.NO0_EXTERNAL_BACKEND === '1') {
+      log.info('Skipping Electron-managed backend because an external backend is configured.');
+      return;
+    }
     const isPackaged = this._isPackaged();
     // 发布模式绝不探测、调用或依赖 PM2/Node CLI。
     if (!isPackaged && this._isPm2Running()) {

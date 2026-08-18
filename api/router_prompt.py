@@ -41,8 +41,9 @@ async def list_template_versions(template_id: str):
     try:
         versions = prompt_manager.list_template_versions(template_id)
         return {"status": "success", "data": versions}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        from core.errors import http_error
+        raise http_error(500, "PROMPT_VERSIONS_LIST_FAILED")
 
 @router.post("/prompts/{template_id}/versions/{version}/rollback")
 async def rollback_template(template_id: str, version: int):
@@ -52,5 +53,7 @@ async def rollback_template(template_id: str, version: int):
         return {"status": "success", "data": restored.model_dump()}
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        # Batch 7：不泄漏 str(exception)
+        from core.errors import http_error
+        raise http_error(500, "PROMPT_ROLLBACK_FAILED")

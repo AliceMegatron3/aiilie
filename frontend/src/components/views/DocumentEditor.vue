@@ -65,14 +65,17 @@
             </div>
           </div>
           <button
+            v-if="featureEnabled('tts_enable')"
             class="text-xs bg-[#2a2a30] hover:bg-gray-600 text-gray-300 px-3 py-1.5 rounded border border-gray-700 transition-colors"
             @click="showAudio = !showAudio"
           >🔊 朗读</button>
           <button
+            v-if="featureEnabled('branch_version_enable')"
             class="text-xs bg-[#2a2a30] hover:bg-gray-600 text-gray-300 px-3 py-1.5 rounded border border-gray-700 transition-colors"
             @click="showDiff = !showDiff"
           >🔀 分支对比</button>
           <button
+            v-if="featureEnabled('storyboard_enable')"
             class="text-xs bg-[#2a2a30] hover:bg-gray-600 text-gray-300 px-3 py-1.5 rounded border border-gray-700 transition-colors"
             @click="showGallery = true"
           >🎬 分镜</button>
@@ -140,9 +143,10 @@
 
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted, onBeforeUnmount } from 'vue'
-import { api } from '../../api'
+import { api, unwrap } from '../../api'
 import { toast } from '../../utils/toast'
 import { useAppStore } from '../../stores/useAppStore'
+import { useFeatureFlags } from '../../composables/useFeatureFlags'
 import AudioPlayer from '../../components/AudioPlayer.vue'
 import DiffViewer from '../../components/DiffViewer.vue'
 import GalleryModal from '../../components/GalleryModal.vue'
@@ -152,6 +156,7 @@ const props = defineProps({
 })
 
 const appStore = useAppStore()
+const { enabled: featureEnabled } = useFeatureFlags()
 const loading = ref(true)
 const loadError = ref('')
 const docTitle = ref('')
@@ -238,7 +243,7 @@ const locateTextRange = ({ start, end }) => {
 const loadGenerationBaseline = async () => {
   try {
     const res = await api.projects.generationBaseline(props.docId)
-    generationBaseline.value = res.data?.baseline || null
+    generationBaseline.value = unwrap<any>(res)?.baseline || null
   } catch (e) {
     generationBaseline.value = null
   }
@@ -257,7 +262,7 @@ const confirmAuthorFinal = async () => {
   confirming.value = true
   try {
     const res = await api.projects.authorConfirmDoc(props.docId, content.value)
-    const retention = res.data?.confirmation?.signal?.retention
+    const retention = unwrap<any>(res)?.confirmation?.signal?.retention
     generationBaseline.value = null
     toast.success(
       retention == null

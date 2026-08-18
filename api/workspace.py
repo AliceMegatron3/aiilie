@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from api.deps import get_project_manager, verify_token
 from core.exceptions import PathTraversalError
-from core.path_resolver import get_workspace_dir, get_ai_index_dir
+from core.path_resolver import get_workspace_dir, get_ai_index_dir, get_library_index_dir
 from core.response import ok
 from services.project_manager import ProjectManager
 
@@ -50,6 +50,7 @@ async def get_workspace_info() -> dict[str, Any]:
         {
             "workspace_dir": str(get_workspace_dir()),
             "ai_index_dir": str(get_ai_index_dir()),
+            "library_index_dir": str(get_library_index_dir()),
         }
     )
 

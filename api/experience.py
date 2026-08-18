@@ -5,6 +5,7 @@ import logging
 
 from services.experience_manager import experience_manager
 from api.deps import verify_token
+from core.response import ok
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ async def submit_experience(
     """智能体通过此接口提交它刚刚总结的经验，将进入 pending 状态等待审批。"""
     try:
         exp = experience_manager.add_experience(payload.exp_type, payload.content)
-        return {"success": True, "data": exp, "message": "经验已提交待审，并同步至本地报告"}
+        return ok(exp, message="经验已提交待审，并同步至本地报告")
     except Exception as e:
         logger.error("提交经验失败: %s", e)
         raise HTTPException(status_code=500, detail="提交经验失败")
@@ -36,7 +37,7 @@ async def list_experiences(
     """前端或智能体查询经验库（可按状态过滤，如 approved 或 pending）。"""
     try:
         data = experience_manager.get_experiences(status)
-        return {"success": True, "data": data}
+        return ok(data)
     except Exception as e:
         raise HTTPException(status_code=500, detail="获取经验失败")
 
@@ -50,7 +51,7 @@ async def approve_experience(
         success = experience_manager.approve_experience(exp_id, payload.is_approved)
         if not success:
             raise HTTPException(status_code=404, detail="经验ID不存在")
-        return {"success": True, "message": "审批完成，本地报告已更新"}
+        return ok(message="审批完成，本地报告已更新")
     except Exception as e:
         logger.error("审批经验失败: %s", e)
         raise HTTPException(status_code=500, detail="审批失败")
@@ -76,6 +77,6 @@ async def get_quantize_prompt() -> dict[str, Any]:
             for idx, exp in enumerate(relevant_exps, 1):
                 prompt_injection += f"{idx}. {exp}\n"
                 
-        return {"success": True, "prompt_injection": prompt_injection}
+        return ok({"prompt_injection": prompt_injection})
     except Exception as e:
         raise HTTPException(status_code=500, detail="获取经验 prompt 失败")

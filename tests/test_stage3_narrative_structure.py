@@ -141,8 +141,9 @@ async def test_thread_lifecycle_and_audit(svc):
 @pytest.mark.asyncio
 async def test_api_router_mounted():
     from api.api_router import api_router
+    from tests.conftest import flatten_api_router
 
-    paths = {r.path for r in api_router.routes}
+    paths = {r.path for r in flatten_api_router(api_router)}
     assert any("/narrative/" in p for p in paths)
 
 

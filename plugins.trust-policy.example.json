@@ -1,0 +1,9 @@
+{
+  "allowed_signers": [],
+  "require_signer": false,
+  "require_cosign": false,
+  "require_signing": false,
+  "expected_identity": "",
+  "expected_issuer": "",
+  "trusted_digests": []
+}

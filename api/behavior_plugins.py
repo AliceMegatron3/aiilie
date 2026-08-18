@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from api.deps import verify_token
+from core.response import ok
 from models.behavior_plugin import PluginSource, PluginStatus
 from services.author_signals import (
     attribute_plugin_outcomes,
@@ -43,7 +44,7 @@ def _ensure_overrides_loaded() -> None:
 async def list_behavior_plugins():
     _ensure_overrides_loaded()
     stats = aggregate_stats(load_run_records())
-    return {
+    return ok({
         "plugins": [
             {
                 **spec.model_dump(),
@@ -51,7 +52,7 @@ async def list_behavior_plugins():
             }
             for spec in behavior_plugin_registry.list_plugins()
         ]
-    }
+    })
 
 
 # 作者信号最低样本数:低于此值仅供参考,不得当作稳定结论(小样本硬约束)
@@ -77,7 +78,7 @@ async def behavior_plugin_stats():
         samples = int(entry.get("signal_tasks", 0) or 0)
         entry["insufficient_sample"] = samples < MIN_AUTHOR_SIGNAL_SAMPLES
         entry["min_samples_required"] = MIN_AUTHOR_SIGNAL_SAMPLES
-    return {"stats": stats}
+    return ok({"stats": stats})
 
 
 class AuthorSignalRequest(BaseModel):
@@ -90,7 +91,7 @@ class AuthorSignalRequest(BaseModel):
 async def author_signal(req: AuthorSignalRequest):
     """作者确认/改稿后登记真实信号:生成终稿 vs 作者定稿 → 保留率。"""
     record = record_author_signal(req.task_id, req.generated_text, req.final_text)
-    return {"signal": record}
+    return ok({"signal": record})
 
 
 class PluginStatusRequest(BaseModel):
@@ -115,4 +116,4 @@ async def set_plugin_status(plugin_id: str, req: PluginStatusRequest):
         )
     updated = behavior_plugin_registry.set_status(plugin_id, new_status, req.gray_percent)
     save_registry_overrides(behavior_plugin_registry)
-    return {"plugin": updated.model_dump() if updated else None}
+    return ok({"plugin": updated.model_dump() if updated else None})

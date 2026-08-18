@@ -270,11 +270,13 @@ def test_global_router_force_split_marking():
         task_q = tm._tasks[resp_q["task_id"]]
         assert len(task_q.segments) >= 2, "量化短指令应被强制分段"
 
-        # DOC_LEARNING 意图 → force_split
+        # DOC_LEARNING 意图 → B 类收口：统一指令入口不直接执行文档学习，
+        # 结构化 bypass 到文档级真实入口 POST /docs/{id}/learn（不再伪装通用任务）
         req_d = CommandRequest(command="帮我解析文档", options={"is_command_mode": True})
         resp_d = await router.route_command(req_d)
         assert resp_d["intent"] == "DOC_LEARNING"
-        assert resp_d["segment_strategy"] == SEGMENT_STRATEGY_FORCE_SPLIT
+        assert resp_d["status"] == "bypassed"
+        assert resp_d["target"] == "DocumentLearningEngine"
 
         # DEEP_THINK（mode=think 短指令）→ force_split
         req_t = CommandRequest(command="分析这段设定", options={

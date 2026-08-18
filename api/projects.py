@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from core.task_manager import TaskManager
 from core.config_manager import config_manager
 from core.path_resolver import get_app_data_dir, safe_join
+from core.response import ok
 from models.project import AIParseResult, AuthorProject, ProjectDoc
 from services.learning_engine import DocumentLearningEngine
 from services.project_manager import ProjectManager
@@ -146,6 +147,9 @@ async def add_document(
     project = await pm.get_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="绑定的项目不存在")
+    # 阶段B：新建文档不允许客户端注入 ai_parse_path（防路径遍历读任意文件）。
+    # 解析路径一律由服务端在自学习完成时通过受控目录生成。
+    doc.ai_parse_path = None
     try:
         await pm.add_document(doc)
         return doc
@@ -191,20 +195,20 @@ class AuthorConfirmRequest(BaseModel):
 async def set_generation_baseline(doc_id: str, req: SetGenerationBaselineRequest):
     try:
         from services.document_confirmation import set_generation_baseline as _set
-        return {"success": True, "baseline": _set(doc_id, req.task_id, req.generated_text)}
+        return ok({"baseline": _set(doc_id, req.task_id, req.generated_text)}, message="success")
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
 @router.get("/docs/{doc_id}/generation-baseline", summary="获取待确认生成基线")
 async def get_generation_baseline(doc_id: str):
     from services.document_confirmation import get_generation_baseline as _get
-    return {"baseline": _get(doc_id)}
+    return ok({"baseline": _get(doc_id)}, message="success")
 
 @router.post("/docs/{doc_id}/author-confirm", summary="作者确认文档定稿")
 async def author_confirm_document(doc_id: str, req: AuthorConfirmRequest):
     try:
         from services.document_confirmation import confirm_author_final
-        return {"success": True, "confirmation": confirm_author_final(doc_id, req.final_text)}
+        return ok({"confirmation": confirm_author_final(doc_id, req.final_text)}, message="success")
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
 
@@ -236,7 +240,7 @@ async def rename_document(
 ) -> dict[str, Any]:
     try:
         await pm.rename_document(doc_id, req.doc_name)
-        return {"success": True, "message": "文档重命名成功", "error_code": None}
+        return ok({"renamed": True}, message="文档重命名成功")
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -250,7 +254,7 @@ async def delete_document(
 ) -> dict[str, Any]:
     try:
         await pm.delete_document(doc_id)
-        return {"success": True, "message": "文档已删除", "error_code": None}
+        return ok({"deleted": True}, message="文档已删除")
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -265,7 +269,7 @@ async def list_document_versions(
 ) -> dict[str, Any]:
     try:
         versions = await pm.list_document_versions(doc_id, branch_id)
-        return {"success": True, "data": versions, "message": "success", "error_code": None}
+        return ok(versions, message="success")
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -283,7 +287,7 @@ async def restore_document_version(
 ) -> dict[str, Any]:
     try:
         await pm.restore_document_version(doc_id, version)
-        return {"success": True, "message": f"文档已回滚至版本 {version}", "error_code": None}
+        return ok({"version": version}, message=f"文档已回滚至版本 {version}")
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -316,13 +320,13 @@ async def list_doc_branches(
             raise ValueError(f"文档不存在: {doc_id}")
         vc = pm._get_version_control()
         branches = await vc.list_branches(doc.project_id, doc_id)
-        return {
-            "success": True,
-            "data": [b.model_dump() for b in branches],
-            "current_branch_id": doc.current_branch_id or "main",
-            "message": "success",
-            "error_code": None,
-        }
+        return ok(
+            {
+                "branches": [b.model_dump() for b in branches],
+                "current_branch_id": doc.current_branch_id or "main",
+            },
+            message="success",
+        )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -342,7 +346,7 @@ async def create_doc_branch(
             doc.project_id, doc_id, req.name,
             from_branch_id=req.from_branch_id or doc.current_branch_id or "main",
         )
-        return {"success": True, "data": branch.model_dump(), "message": "分支已创建", "error_code": None}
+        return ok(branch.model_dump(), message="分支已创建")
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -359,7 +363,7 @@ async def switch_doc_branch(
             raise ValueError(f"文档不存在: {doc_id}")
         vc = pm._get_version_control()
         await vc.switch_branch(doc.project_id, doc_id, branch_id)
-        return {"success": True, "message": f"已切换至分支 {branch_id}", "error_code": None}
+        return ok({"branch_id": branch_id}, message=f"已切换至分支 {branch_id}")
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -378,12 +382,7 @@ async def archive_doc_branch(
             raise ValueError(f"文档不存在: {doc_id}")
         vc = pm._get_version_control()
         branch = await vc.archive_branch(doc.project_id, doc_id, branch_id)
-        return {
-            "success": True,
-            "data": branch.model_dump(),
-            "message": f"分支 {branch_id} 已归档",
-            "error_code": None,
-        }
+        return ok(branch.model_dump(), message=f"分支 {branch_id} 已归档")
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -401,12 +400,7 @@ async def unarchive_doc_branch(
             raise ValueError(f"文档不存在: {doc_id}")
         vc = pm._get_version_control()
         branch = await vc.unarchive_branch(doc.project_id, doc_id, branch_id)
-        return {
-            "success": True,
-            "data": branch.model_dump(),
-            "message": f"分支 {branch_id} 已恢复",
-            "error_code": None,
-        }
+        return ok(branch.model_dump(), message=f"分支 {branch_id} 已恢复")
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -423,12 +417,7 @@ async def list_archived_doc_branches(
             raise ValueError(f"文档不存在: {doc_id}")
         vc = pm._get_version_control()
         branches = await vc.list_archived_branches(doc.project_id, doc_id)
-        return {
-            "success": True,
-            "data": [b.model_dump() for b in branches],
-            "message": "success",
-            "error_code": None,
-        }
+        return ok([b.model_dump() for b in branches], message="success")
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -447,7 +436,7 @@ async def diff_doc_branches(
             raise ValueError(f"文档不存在: {doc_id}")
         vc = pm._get_version_control()
         diff = await vc.diff_branches(doc_id, branch_a, branch_b)
-        return {"success": True, "data": diff, "message": "success", "error_code": None}
+        return ok(diff, message="success")
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -477,7 +466,17 @@ async def get_document_parse_result(
         
     if not doc.ai_parse_path:
         raise HTTPException(status_code=400, detail="该文档尚未进行自学习或任务仍未完成")
-    path = Path(doc.ai_parse_path)
+    # 阶段B：仅在受控根目录（工作区 / 用户数据目录）内读取 ai_parse 结果，防越界读任意文件。
+    from core.path_resolver import get_app_data_dir, get_workspace_dir
+
+    allowed_roots = [root.resolve() for root in (get_workspace_dir(), get_app_data_dir())]
+    try:
+        resolved = Path(doc.ai_parse_path).resolve()
+        if not any(root == resolved or root in resolved.parents for root in allowed_roots):
+            raise ValueError("not under allowed root")
+    except (ValueError, OSError):
+        raise HTTPException(status_code=400, detail="解析路径非法（必须在受控目录内）")
+    path = resolved
     exists = await asyncio.to_thread(path.exists)
     if not exists:
         logger.warning("解析路径存在但物理文件丢失: %s", path)

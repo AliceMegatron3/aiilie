@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from core.config_manager import config_manager
 from api.deps import verify_token
+from core.response import ok
 from models.timeline import Timeline, TimelineEvent
 from services.timeline_service import TimelineService
 
@@ -42,12 +43,7 @@ async def list_timelines(
     _require_feature()
     try:
         timelines = await svc.list_timelines(project_id)
-        return {
-            "success": True,
-            "data": [t.model_dump() for t in timelines],
-            "message": "success",
-            "error_code": None,
-        }
+        return ok([t.model_dump() for t in timelines], message="success")
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -61,7 +57,7 @@ async def create_timeline(
     _require_feature()
     try:
         created = await svc.create_timeline(project_id, timeline)
-        return {"success": True, "data": created.model_dump(), "message": "时间线已创建", "error_code": None}
+        return ok(created.model_dump(), message="时间线已创建")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -75,7 +71,7 @@ async def get_timeline(
     _require_feature()
     try:
         timeline = await svc.get_timeline(project_id, timeline_id)
-        return {"success": True, "data": timeline.model_dump(), "message": "success", "error_code": None}
+        return ok(timeline.model_dump(), message="success")
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -90,7 +86,7 @@ async def update_timeline(
     _require_feature()
     try:
         updated = await svc.update_timeline(project_id, timeline_id, patch)
-        return {"success": True, "data": updated.model_dump(), "message": "时间线已更新", "error_code": None}
+        return ok(updated.model_dump(), message="时间线已更新")
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -104,7 +100,7 @@ async def delete_timeline(
     _require_feature()
     try:
         await svc.delete_timeline(project_id, timeline_id)
-        return {"success": True, "message": "时间线已删除", "error_code": None}
+        return ok({"deleted": True}, message="时间线已删除")
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -123,7 +119,7 @@ async def add_event(
     _require_feature()
     try:
         created = await svc.add_event(project_id, timeline_id, event)
-        return {"success": True, "data": created.model_dump(), "message": "事件已添加", "error_code": None}
+        return ok(created.model_dump(), message="事件已添加")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -141,7 +137,7 @@ async def update_event(
     _require_feature()
     try:
         updated = await svc.update_event(project_id, timeline_id, event_id, patch)
-        return {"success": True, "data": updated.model_dump(), "message": "事件已更新", "error_code": None}
+        return ok(updated.model_dump(), message="事件已更新")
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -158,7 +154,7 @@ async def delete_event(
     _require_feature()
     try:
         await svc.delete_event(project_id, timeline_id, event_id)
-        return {"success": True, "message": "事件已删除", "error_code": None}
+        return ok({"deleted": True}, message="事件已删除")
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -176,12 +172,7 @@ async def check_timeline_conflicts(
     _require_feature()
     try:
         report = await svc.check_conflicts(project_id, timeline_id)
-        return {
-            "success": True,
-            "data": report.model_dump(),
-            "message": "success",
-            "error_code": None,
-        }
+        return ok(report.model_dump(), message="success")
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -196,11 +187,6 @@ async def check_all_timeline_conflicts(
     _require_feature()
     try:
         reports = await svc.check_all_conflicts(project_id)
-        return {
-            "success": True,
-            "data": [r.model_dump() for r in reports],
-            "message": "success",
-            "error_code": None,
-        }
+        return ok([r.model_dump() for r in reports], message="success")
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))

@@ -22,9 +22,29 @@ temp*/
 build/
 dist/
 
+# 前端依赖与测试产物（node_modules 不得入库）
+frontend/node_modules/
+
+# 运行时用户数据（不得提交）
+data/
+
 # 本地配置、环境变量
 .env
 *.env
+
+# ── 安全：密钥与敏感配置（阶段A 暴露面收紧）──
+# 供应商/服务凭据一旦漏出即视为泄漏，任何情况下不得跟踪或提交。
+# config/llm_provider.yaml 本身仅跟踪非敏感字段，明文密钥由 CI 密钥扫描守卫。
+*.pem
+*.key
+*.crt
+secrets*/
+*.trust_store.json
+config/*/trust_store.json
+plugins.trust-policy*.json
+!plugins.trust-policy.example.json
+*.secret
+auth_secret
 
 # 工具本地目录
 .workbuddy/

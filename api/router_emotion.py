@@ -181,7 +181,8 @@ async def batch_quantize_book(
         return {"status": "success", "task_id": task.task_id}
     except Exception as e:
         logger.error("批量情感量化任务投递失败: %s", e)
-        raise HTTPException(status_code=500, detail=f"任务投递失败: {e}")
+        from core.errors import http_error
+        raise http_error(500, "EMOTION_BATCH_DISPATCH_FAILED")
 
 @router.get("/frames")
 async def list_frames(project_id: str = None, limit: int = 50, db: DatabaseManager = Depends(get_db)):

@@ -47,11 +47,13 @@ class NovelSupervisor:
         optimization_applier: OptimizationApplier,
         dispatcher=None,         # ModelDispatcher（可选）
         divergent_engine=None,   # DivergentEngine（可选）
+        skill_governance=None,
     ) -> None:
         self.indexer = indexer
         self.optimization_applier = optimization_applier
         self.dispatcher = dispatcher
         self.divergent_engine = divergent_engine
+        self.skill_governance = skill_governance
         self._batch1_task_manager = None  # 由 bootstrap 注入，用于生成批次1审计报告
         self._skill_store = None  # 由 bootstrap 注入，用于技能应用效果统计
         # 本次任务使用的 rule_id / skill_id（任务级暂存，收尾写入审计）
@@ -104,6 +106,30 @@ class NovelSupervisor:
         - 全部以 InfoCard (card_sub_type='novel_agent_skill') 形式保存在卡片库中
         - 通过 payload 反序列化为 NovelAgentSkill
         """
+        if self.skill_governance is not None:
+            try:
+                resolved = self.skill_governance.resolve_active_skills({
+                    "task_id": f"novel:{project_id}:{genre}:{scenario}",
+                    "project_id": project_id,
+                    "genre": genre,
+                    "scenario": scenario,
+                    "consumer": "novel_supervisor",
+                })
+                skills: list[NovelAgentSkill] = []
+                for item in resolved:
+                    artifact = item.get("artifact") or {}
+                    payload = artifact.get("novel_agent_skill") or artifact
+                    try:
+                        skill = NovelAgentSkill.model_validate(payload)
+                    except Exception:
+                        continue
+                    skill = skill.model_copy(update={"skill_id": f"{item['candidate_id']}@{item['version']}"})
+                    skills.append(skill)
+                    self._active_skill_ids.append(skill.skill_id)
+                return skills
+            except Exception as exc:
+                logger.warning("[NovelSupervisor] 治理技能解析失败: %s", exc)
+                return []
         if not self.indexer:
             return []
         # 注意：子开关 enable_self_reflect_learn 只控制"生成新规则/技能"，

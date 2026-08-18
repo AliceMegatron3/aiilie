@@ -4,11 +4,11 @@ import router from '../router'
 // 全部前端功能域，与后端 api domain、router 路径一一对应
 type AppModule =
   // 创作
-  | 'projects' | 'narrative' | 'lockfield' | 'ensemble-history'
+  | 'projects'
   // 知识
-  | 'library' | 'knowledge-gaps' | 'emotion' | 'timeline'
+  | 'library' | 'cards' | 'ledger' | 'code' | 'knowledge-gaps' | 'emotion'
   // 智能
-  | 'agents' | 'deep-think' | 'sessions' | 'reflections'
+  | 'agents' | 'deep-think' | 'sessions' | 'reflections' | 'experience'
   // 系统
   | 'plugins' | 'workspace' | 'settings' | 'templates'
 
@@ -19,6 +19,9 @@ export const MODULE_TO_API_DOMAIN: Record<string, string> = {
   lockfield: 'lockfield',
   'ensemble-history': 'ensemble',
   library: 'library',
+  cards: 'library',
+  ledger: 'ledger',
+  code: 'code-execution',
   'knowledge-gaps': 'knowledge',
   emotion: 'emotion',
   timeline: 'timeline',
@@ -30,6 +33,7 @@ export const MODULE_TO_API_DOMAIN: Record<string, string> = {
   workspace: 'workspace',
   settings: 'settings / models',
   templates: 'prompts',
+  experience: 'experience',
 }
 
 interface AppState {

@@ -1,0 +1,38 @@
+# ── 安全：构建上下文剔除敏感项 ────────────────────────────
+.git
+.gitignore
+config/llm_provider.yaml
+.env
+*.env
+*.pem
+*.key
+*.crt
+secrets*/
+*.trust_store.json
+
+# ── 运行期数据（不进入镜像层）────────────────────────────
+data/
+*.db
+*.db-journal
+*.log
+logs/
+temp*/
+历史资料/
+
+# ── 依赖与构建产物 ────────────────────────────────────────
+__pycache__/
+*.pyc
+.venv/
+.uv/
+node_modules/
+frontend/node_modules/
+frontend/dist
+build/
+dist/
+*.egg-info/
+
+# ── 报告与杂项 ────────────────────────────────────────────
+*.err
+*.report.md
+*.tmp
+benchmark_result.json

@@ -47,7 +47,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { api } from '../../api'
+import { api, unwrap } from '../../api'
 
 const projects = ref<any[]>([])
 const projectId = ref('')
@@ -70,7 +70,7 @@ async function loadTracks() {
   if (!projectId.value) return
   try {
     const res = await api.governance.ensembleTracks(projectId.value)
-    tracks.value = res.data?.tracks || []
+    tracks.value = unwrap<any>(res)?.tracks || []
   } catch { tracks.value = [] }
 }
 
@@ -78,7 +78,7 @@ async function loadHistory() {
   if (!selectedChar.value || !projectId.value) return
   try {
     const res = await api.governance.trackHistoryByChar(projectId.value, selectedChar.value)
-    history.value = res.data?.history || []
+    history.value = unwrap<any>(res)?.history || []
   } catch { history.value = [] }
 }
 
@@ -86,7 +86,7 @@ async function queryAtChapter() {
   if (!selectedChar.value || !projectId.value || !queryChapter.value) return
   try {
     const res = await api.governance.trackAtChapter(projectId.value, selectedChar.value, queryChapter.value)
-    atChapterTrack.value = res.data?.track || null
+    atChapterTrack.value = unwrap<any>(res)?.track || null
   } catch { atChapterTrack.value = null }
 }
 

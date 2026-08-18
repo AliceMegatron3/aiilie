@@ -777,7 +777,10 @@ class TaskManager:
         return len(self._tasks)
 
 
-# 语义名(优化报告§5.3):本类是「分段执行编排器」——指令→拆分→分段→合并。
-# 与 core.task_manager.PersistentTaskQueue(纯队列持久化)是两种机制,
+# 语义名(优化报告§5.3 / Batch 0 命名收敛):本类是「分段执行引擎」——
+# 指令→拆分→分段→合并 的全链路编排。
+# 与 core.task_manager.PersistentTaskQueue(纯队列持久化,批次5)是两种机制,
 # 职责不同不予合并;以语义命名消除同名混淆。存量引用继续用 TaskManager。
+# Batch 0 明确语义名从 TaskOrchestrator 收敛为 SegmentExecutionEngine。
 TaskOrchestrator = TaskManager
+SegmentExecutionEngine = TaskManager

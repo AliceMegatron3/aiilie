@@ -53,43 +53,58 @@ class DefaultStrategy(ExtractionStrategy):
         
         logger.debug("DefaultStrategy 开始提取文本，来源: %s, 章节: %s", book_id, chapter)
         
-        # 遍历注册中心所有有效的卡片类型定义，尝试提取对应内容
-        # 注意：此处仅做基础模拟和文本封装，后续可替换为真正的大模型 API 提取
+        # 规则策略只能保存有证据的结果；没有注册处理器时返回空集，
+        # 不再生成“默认规则摘要”或虚构 metric_score。
         for definition in self.registry.get_all_types():
             subtype = definition.subtype
-            category = definition.card_category
-            
-            # 在实际业务中，此处应有基于正则表达式或本地微调模型的匹配逻辑
-            # 当前为了演示通用化接口与卡片组装，生成简单的适配结构
-            summary_content = f"根据默认规则提炼的 [{subtype}] 核心摘要"
-            
+            processor = self.registry.get_processor(subtype)
+            if processor is None:
+                continue
             try:
-                if category == "info":
-                    # 封装 InfoCard (资料索引卡)
-                    card = InfoCard(
-                        source_book_id=book_id,
-                        source_chapter=chapter,
-                        content=summary_content,
-                        tags=[subtype, "auto_extract"],
-                        card_sub_type=subtype,
-                        original_fragment=text[:200] if text else ""
-                    )
-                    cards.append(card)
-                elif category == "data":
-                    # 封装 DataCard (数据量化卡)
-                    card = DataCard(
-                        source_book_id=book_id,
-                        source_chapter=chapter,
-                        content=summary_content,
-                        tags=[subtype, "auto_quantify"],
-                        metric_type=subtype,
-                        value={"metric_score": 0.5, "reliability": "low"}
-                    )
-                    cards.append(card)
-                else:
-                    logger.warning("未知的卡片类别 [%s]，跳过生成: %s", category, subtype)
+                result = processor(text, context)
+                if hasattr(result, "__await__"):
+                    result = await result
+                if not isinstance(result, list):
+                    continue
+                for card in result:
+                    if isinstance(card, BaseCard):
+                        cards.append(card)
             except Exception as e:
-                logger.error("生成 %s 卡片时发生异常: %s", subtype, e)
+                logger.warning("规则处理器 %s 执行失败: %s", subtype, e)
                 
         logger.info("DefaultStrategy 提取完成，共生成 %d 张卡片", len(cards))
         return cards
+
+
+class FallbackStrategy(ExtractionStrategy):
+    """
+    LLM 优先 + 规则兜底的组合策略。
+    - primary: 主提取策略（通常是 LLMExtractionStrategy）
+    - fallback: 兜底策略（通常是 DefaultStrategy）
+    - fallback_on_failure: 主策略抛异常或产出 0 张卡时自动回退兜底。
+    """
+    def __init__(
+        self,
+        registry: CardTypeRegistry,
+        primary: ExtractionStrategy,
+        fallback: ExtractionStrategy,
+        fallback_on_failure: bool = True,
+    ) -> None:
+        super().__init__(registry)
+        self.primary = primary
+        self.fallback = fallback
+        self.fallback_on_failure = fallback_on_failure
+
+    async def extract(self, text: str, context: dict[str, Any]) -> list[BaseCard]:
+        try:
+            cards = await self.primary.extract(text, context)
+            if cards:
+                return cards
+            # 主策略产出了空结果（例如模型认为该段无职责内容）
+            if self.fallback_on_failure:
+                logger.info("[FallbackStrategy] 主策略未产出卡片，回退规则兜底")
+                return await self.fallback.extract(text, context)
+            return cards
+        except Exception as e:
+            logger.warning("[FallbackStrategy] 主策略异常，回退规则兜底: %s", e)
+            return await self.fallback.extract(text, context)

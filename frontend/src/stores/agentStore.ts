@@ -1,10 +1,12 @@
 import { defineStore } from 'pinia'
+import { api, unwrap } from '../api'
 
 type SkillRole = 'lore_expert' | 'combat_expert' | 'emotion_expert'
 type SkillOverride = boolean | null
 interface AgentState {
   primaryModel: string
   workerModel: string
+  availableModels: { id: string; name: string; type: string }[]
   skillOverrides: Record<SkillRole, SkillOverride>
   projectStyleLens: string
   lastExecutionDag: unknown
@@ -12,25 +14,18 @@ interface AgentState {
 
 export const useAgentStore = defineStore('agent', {
   state: (): AgentState => ({
-    // 全局模型选择
-    primaryModel: 'deepseek-r1:7b',
-    workerModel: 'qwen2.5:7b',
-    
-    // 专职子智能体（专员）的强制开关状态
-    // 如果为 null，代表让总督自己决定；如果为 true/false，代表人类强制介入
+    primaryModel: '',
+    workerModel: '',
+    availableModels: [],
     skillOverrides: {
       lore_expert: null,
       combat_expert: null,
       emotion_expert: null,
     },
-    
-    // 当前项目的风格透镜（可被提示词适配器读取）
     projectStyleLens: '玄幻修仙',
-    
-    // 最近一次总督下发的 DAG 执行计划图
     lastExecutionDag: null
   }),
-  
+
   actions: {
     setSkillOverride(role: SkillRole, value: SkillOverride) {
       this.skillOverrides[role] = value
@@ -51,6 +46,34 @@ export const useAgentStore = defineStore('agent', {
     },
     setExecutionDag(dag: unknown) {
       this.lastExecutionDag = dag
+    },
+    async fetchFromConfig() {
+      try {
+        // 并行拉取本地模型列表与后端配置
+        const [ollamaRes, settingsRes] = await Promise.allSettled([
+          api.models.ollama(),
+          api.settings.getLLM()
+        ])
+        // 合并本地已安装模型
+        const ollamaModels: { id: string; name: string; type: string }[] =
+          ollamaRes.status === 'fulfilled' ? (ollamaRes.value.data?.data || []) : []
+        this.availableModels = ollamaModels
+        // 从后端配置回填当前选中的模型
+        if (settingsRes.status === 'fulfilled') {
+          const s = unwrap<any>(settingsRes.value)
+          if (s?.ollama?.model_name) this.workerModel = s.ollama.model_name
+          if (s?.deepseek?.model_name) this.primaryModel = s.deepseek.model_name
+        }
+        // 如果 workerModel 为空且有可用本地模型，自动选择第一个
+        if (!this.workerModel && ollamaModels.length > 0) {
+          this.workerModel = ollamaModels[0].name
+        }
+        if (!this.primaryModel && ollamaModels.length > 0) {
+          this.primaryModel = ollamaModels[0].name
+        }
+      } catch {
+        // 静默失败，保持现有状态
+      }
     }
   }
 })

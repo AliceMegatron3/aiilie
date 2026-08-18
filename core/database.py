@@ -430,6 +430,15 @@ class DatabaseManager:
         )
         row = await self.get_task(task_id)
         return row is not None and row.get("status") == status
+    async def update_task_payload(self, task_id: str, payload: dict[str, Any]) -> bool:
+        """更新任务的版本化扩展载荷，不改变任务核心调度字段。"""
+        now = datetime.now(timezone.utc).isoformat()
+        await self.execute_write(
+            "UPDATE tasks SET task_payload=?, updated_at=? WHERE task_id=?",
+            (json.dumps(payload, ensure_ascii=False), now, task_id),
+        )
+        return await self.get_task(task_id) is not None
+
     async def increment_retry_count(self, task_id: str) -> None:
         """任务失败时增加重试计数。"""
         await self.execute_write(

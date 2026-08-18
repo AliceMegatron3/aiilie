@@ -95,8 +95,9 @@ async def test_unbound_chapters_counted(svc):
 
 def test_preview_and_variance_endpoints_mounted():
     from api.api_router import api_router
+    from tests.conftest import flatten_api_router
 
-    paths = {r.path for r in api_router.routes}
+    paths = {r.path for r in flatten_api_router(api_router)}
     assert any(p.endswith("/preview") and "arcs" in p for p in paths)
     assert any(p.endswith("/arc-variance") for p in paths)
     assert any(p.endswith("/tracks") and "ensemble" in p for p in paths)

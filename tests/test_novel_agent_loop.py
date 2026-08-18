@@ -246,3 +246,87 @@ async def main():
     return 0
 if __name__ == "__main__":
     sys.exit(asyncio.run(main()))
+
+
+# ── Batch 4：退役 toggle_skill 的生产调用改为安全 archive_skill ──
+import pytest  # noqa: E402
+from core.database import DatabaseManager  # noqa: E402
+
+
+@pytest.mark.asyncio
+async def test_archive_skill_is_idempotent_and_retired_toggle_raises(tmp_path):
+    """Batch 4：低效技能归档走 archive_skill（ACTIVE→ARCHIVED 单向、幂等），
+    退役 toggle_skill 仍被坚决拒绝，杜绝静默归档失败。"""
+    db = DatabaseManager(db_path=tmp_path / "skillstore.db")
+    await db.initialize()
+    store = NovelAgentSkillStore(db)
+    await store.initialize()
+    try:
+        await db.conn.execute(
+            "INSERT OR REPLACE INTO novel_agent_skills"
+            "(skill_id,name,skill_type,payload,status,apply_count,effect_score,creator,created_at,updated_at) "
+            "VALUES ('skill_arc','弧线','PATTERN','{}','ACTIVE',0,0.05,'','init','init')"
+        )
+        await db.conn.commit()
+        # 首次归档成功
+        assert await store.archive_skill("skill_arc") is True
+        assert (await store.get_skill("skill_arc"))["status"] == "ARCHIVED"
+        # 已归档 → 幂等返回 False，不重复副作用
+        assert await store.archive_skill("skill_arc") is False
+        # 退役 toggle 仍被拒绝（fail-closed）
+        with pytest.raises(RuntimeError):
+            await store.toggle_skill("skill_arc", "ACTIVE")
+    finally:
+        await db.close()
+
+
+@pytest.mark.asyncio
+async def test_low_confidence_rule_never_writes_active_directly(tmp_path):
+    """Batch 4：低置信度规则即便被标记 ACTIVE 也强制进入人工审核（is_active=0），
+    高置信度规则才允许直接 active——在部署边界 fail-closed，不依赖 extractor 自觉。"""
+    from services.novel_agent_learning_loop import NovelAgentLearningLoop
+
+    db = DatabaseManager(db_path=tmp_path / "ruleloop.db")
+    await db.initialize()
+    await db.conn.execute(
+        """CREATE TABLE IF NOT EXISTS optimization_rules (
+            rule_id TEXT PRIMARY KEY, scope TEXT NOT NULL, condition TEXT NOT NULL,
+            action TEXT NOT NULL, confidence REAL NOT NULL, is_active INTEGER DEFAULT 1,
+            created_at REAL NOT NULL, feedback_score REAL DEFAULT 0.0
+        )"""
+    )
+    await db.conn.commit()
+    loop = object.__new__(NovelAgentLearningLoop)
+    loop.db = db
+    loop.confidence_threshold = 0.75
+    try:
+        # 高置信度 ACTIVE → 直接生效
+        await loop._deploy_rules([{
+            "rule_id": "rule_high", "scope": "NOVEL_AGENT_SCHEDULE",
+            "condition": {"x": 1}, "action": {"y": 2},
+            "confidence": 0.9, "status": "ACTIVE",
+        }])
+        # 低置信度但被标记 ACTIVE → 降权进入人工审核，不直写 active
+        await loop._deploy_rules([{
+            "rule_id": "rule_low", "scope": "NOVEL_AGENT_SCHEDULE",
+            "condition": {"x": 1}, "action": {"y": 2},
+            "confidence": 0.4, "status": "ACTIVE",
+        }])
+        cursor = await db.conn.execute(
+            "SELECT rule_id, is_active FROM optimization_rules ORDER BY rule_id"
+        )
+        rows = {str(r[0]): int(r[1]) for r in await cursor.fetchall()}
+        assert rows["rule_high"] == 1  # 高置信度生效
+        assert rows["rule_low"] == 0    # 低置信度绝不 active
+        # 低置信度规则进入人工审核队列
+        cursor = await db.conn.execute(
+            "SELECT COUNT(*) FROM rule_review_queue WHERE rule_id = 'rule_low' AND review_status = 'PENDING'"
+        )
+        assert (await cursor.fetchone())[0] == 1
+        # 高置信度规则不入审核队列
+        cursor = await db.conn.execute(
+            "SELECT COUNT(*) FROM rule_review_queue WHERE rule_id = 'rule_high'"
+        )
+        assert (await cursor.fetchone())[0] == 0
+    finally:
+        await db.close()

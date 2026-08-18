@@ -61,7 +61,23 @@ class NovelAgentSkillStore:
                 await self.indexer.save_card(card)
             except Exception as exc:
                 logger.warning("[NovelAgentSkillStore] 技能卡片写入批次2索引失败（继续落独立表）: %s", exc)
-        # 2. 独立索引表
+        # 2. 独立索引表：旧表保留为兼容投影，治理权威状态由 SkillGovernance 候选池负责。
+        try:
+            from services.skill_governance import SkillGovernance
+
+            governance = SkillGovernance()
+            governance.import_legacy_skill(
+                {
+                    "skill_id": skill.skill_id,
+                    "name": skill.name,
+                    "payload": skill.model_dump(mode="json"),
+                    "effect_score": (skill.effect_stats or {}).get("effect_score", 0.0),
+                },
+                source="novel_agent_skill_store",
+            )
+            governance.close()
+        except Exception as exc:
+            logger.warning("[NovelAgentSkillStore] 统一技能候选导入失败（不影响兼容投影）: %s", exc)
         stats = skill.effect_stats or {}
         await self.db.conn.execute(
             """INSERT INTO novel_agent_skills
@@ -88,6 +104,16 @@ class NovelAgentSkillStore:
         )
         await self.db.conn.commit()
         return skill.skill_id
+    async def migrate_all_to_governance(self, limit: int = 500) -> dict[str, Any]:
+        """批量把旧技能表导入统一候选池，旧表不删除。"""
+        from services.skill_governance import SkillGovernance
+        rows = await self.list_skills(limit=limit)
+        governance = SkillGovernance()
+        try:
+            return governance.import_legacy_skills(rows, source="novel_agent_skills_migration")
+        finally:
+            governance.close()
+
     async def list_skills(self, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
         """技能列表，附带调用统计与 effect_score。"""
         cursor = await self.db.conn.execute(
@@ -120,33 +146,25 @@ class NovelAgentSkillStore:
             d["payload"] = {}
         return d
     async def toggle_skill(self, skill_id: str, status: str) -> bool:
-        """手动启用/归档指定技能。status: ACTIVE / ARCHIVED / PENDING_REVIEW。"""
-        if status not in ("ACTIVE", "ARCHIVED", "PENDING_REVIEW"):
-            return False
-        cursor = await self.db.conn.execute(
-            "SELECT EXISTS(SELECT 1 FROM novel_agent_skills WHERE skill_id = ?)", (skill_id,)
-        )
-        row = await cursor.fetchone()
-        if not row or not row[0]:
-            return False
+        """旧状态开关已退役，发布/归档必须经 SkillGovernance 状态机。"""
+        raise RuntimeError("旧技能 toggle 已退役，请使用治理审核、灰度、全量或回滚接口")
+    async def archive_skill(self, skill_id: str) -> bool:
+        """安全归档低效技能（Batch 4：替代退役的 toggle_skill 自动归档路径）。
+
+        仅允许 ACTIVE → ARCHIVED 单向、幂等落库：非 ACTIVE 或不存在返回 False，
+        不抛异常、不静默吞掉（调用方据返回值统计真实归档数）。归档为治理前的
+        降权遮罩，正式发布/灰度仍须走 SkillGovernance 状态机。
+        """
         from datetime import datetime, timezone
+
         now = datetime.now(timezone.utc).isoformat()
-        await self.db.conn.execute(
-            "UPDATE novel_agent_skills SET status = ?, updated_at = ? WHERE skill_id = ?",
-            (status, now, skill_id),
+        cursor = await self.db.conn.execute(
+            "UPDATE novel_agent_skills SET status = 'ARCHIVED', updated_at = ? "
+            "WHERE skill_id = ? AND status = 'ACTIVE'",
+            (now, skill_id),
         )
         await self.db.conn.commit()
-        # 同步更新批次2卡片状态（payload 内 status）
-        if self.indexer is not None:
-            try:
-                detail = await self.indexer.get_card_detail(skill_id)
-                if detail and detail.get("payload"):
-                    detail["payload"]["status"] = status
-                    card = InfoCard.model_validate(detail)
-                    await self.indexer.save_card(card)
-            except Exception as exc:
-                logger.warning("[NovelAgentSkillStore] 同步技能卡片状态失败: %s", exc)
-        return True
+        return int(cursor.rowcount or 0) == 1
     async def record_skill_apply(self, skill_id: str, audit_row: dict[str, Any]) -> None:
         """
         技能应用效果统计：应用次数 +1，累计 hit/ooc/token/feedback。

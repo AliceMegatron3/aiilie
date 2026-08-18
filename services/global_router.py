@@ -485,37 +485,20 @@ class GlobalRouter:
     async def _route_doc_learning(
         self, req: CommandRequest, cmd_text: str
     ) -> dict[str, Any]:
-        """文档学习意图：短指令 + 后台大文档解析重负载。"""
-        strategy = self._resolve_segment_strategy(req, SEGMENT_STRATEGY_FORCE_SPLIT)
-        if self._use_batch1_engine():
-            task = await self._submit_to_batch1(
-                cmd_text, PriorityLevel.LV6, segment_strategy=strategy,
-                mode="rapid",
-            )
-            return {
-                "status": "queued",
-                "intent": "DOC_LEARNING",
-                "priority": PriorityLevel.LV6.name,
-                "task_id": task.task_id,
-                "engine": "batch1",
-                "segment_count": len(task.segments),
-                "segment_strategy": strategy,
-            }
+        """文档学习意图：统一指令网关不直接执行文档学习。
 
-        # ── 兼容回退：旧队列闭包占位 ──
-        task_id = f"doclearn_{uuid.uuid4().hex[:8]}"
-        async def _lazy_doclearn():
-            logger.info("[GlobalRouter] 文档学习任务排队等待移交: %s", task_id)
-            if self._use_batch1_engine():
-                await self._submit_to_batch1(
-                    cmd_text, PriorityLevel.LV6, segment_strategy=strategy,
-                    mode="rapid",
-                )
-                return
-            await asyncio.sleep(0.5)
-
-        await self.task_queue.push(task_id, _lazy_doclearn, PriorityLevel.LV6)
-        return {"status": "queued", "intent": "DOC_LEARNING", "priority": PriorityLevel.LV6.name, "task_id": task_id}
+        B 类收口：真实文档学习走文档级入口 POST /docs/{id}/learn
+        （DocumentLearningEngine 真实长任务，需明确 doc_id，无法从自由文本可靠解析）；
+        原实现对统一指令提交通用 batch1 LLM 任务，伪装成"文档学习已受理"，
+        实际并未运行学习引擎。现改为结构化 bypass 引导，由前端导向文档编辑器内的
+        真实学习动作（与 PROJECT_MANAGEMENT 的 bypass 语义一致）。
+        """
+        return {
+            "status": "bypassed",
+            "intent": "DOC_LEARNING",
+            "target": "DocumentLearningEngine",
+            "message": "文档学习请从文档编辑器内触发（POST /docs/{id}/learn），统一指令入口不直接执行文档学习。",
+        }
 
     async def _route_creation(
         self, req: CommandRequest, cmd_text: str

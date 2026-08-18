@@ -100,13 +100,14 @@ def test_quantified_gate_cannot_jump_to_active(tmp_path):
     hits = sum(1 for i in range(100) if any(p.plugin_id == "q3" for p in reg.active_for(TriggerContext(task_id=f"t{i}"))))
     assert 15 <= hits <= 45, "30%灰度采样应接近三成命中"
     result = asyncio.run(set_plugin_status("q3", PluginStatusRequest(status="ACTIVE")))
-    assert result["plugin"]["status"] == "ACTIVE"
+    assert result["data"]["plugin"]["status"] == "ACTIVE"
     bp_api.behavior_plugin_registry = BehaviorPluginRegistry()  # 还原
 
 
 def test_governance_endpoints_mounted():
     from api.api_router import api_router
+    from tests.conftest import flatten_api_router
 
-    paths = {r.path for r in api_router.routes}
+    paths = {r.path for r in flatten_api_router(api_router)}
     assert any("/plugins/behavior" in p for p in paths)
     assert any("/grayscale" in p and "skills" in p for p in paths)

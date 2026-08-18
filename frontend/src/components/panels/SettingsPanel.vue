@@ -78,12 +78,16 @@
           </div>
           <div>
             <label class="block text-[11px] font-medium text-gray-400 mb-1">本地模型名称</label>
-            <input 
-              v-model="form.ollama.model_name" 
-              type="text" 
-              class="w-full bg-[#121212] border border-[#3f3f46] rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500"
-              placeholder="qwen2.5:7b"
-            >
+            <div class="flex gap-1">
+              <select
+                v-model="form.ollama.model_name"
+                class="flex-1 bg-[#121212] border border-[#3f3f46] rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500"
+              >
+                <option value="" disabled>选择模型...</option>
+                <option v-for="m in ollamaModels" :key="m.id" :value="m.name">{{ m.name }}</option>
+              </select>
+              <button @click="fetchOllamaModels" class="text-[10px] bg-[#2a2a30] hover:bg-gray-600 text-gray-400 rounded px-1.5 py-0.5 shrink-0">刷新</button>
+            </div>
           </div>
         </div>
       </section>
@@ -108,11 +112,23 @@
 
 <script setup>
 import { ref, onMounted, reactive } from 'vue'
-import { api } from '../../api'
+import { api, unwrap } from '../../api'
 import { toast } from '../../utils/toast'
+import { useAgentStore } from '../../stores/agentStore'
 
+const agentStore = useAgentStore()
 const isLoading = ref(true)
 const isSaving = ref(false)
+const ollamaModels = ref([])
+
+const fetchOllamaModels = async () => {
+  try {
+    const res = await api.models.ollama()
+    ollamaModels.value = res.data?.data || []
+  } catch (e) {
+    ollamaModels.value = []
+  }
+}
 
 const form = reactive({
   deepseek: {
@@ -136,14 +152,16 @@ const form = reactive({
 const loadSettings = async () => {
   try {
     const res = await api.settings.getLLM()
-    if (res.data) {
-      Object.assign(form.deepseek, res.data.deepseek || {})
-      Object.assign(form.ollama, res.data.ollama || {})
+    const s = unwrap<any>(res)
+    if (s) {
+      Object.assign(form.deepseek, s.deepseek || {})
+      Object.assign(form.ollama, s.ollama || {})
     }
     
     const featureRes = await api.settings.getFeatures()
-    if (featureRes.data) {
-      Object.assign(form.features, featureRes.data || {})
+    const f = unwrap<any>(featureRes)
+    if (f) {
+      Object.assign(form.features, f || {})
     }
   } catch (e) {
     console.error('加载设置失败', e)
@@ -157,6 +175,10 @@ const saveSettings = async () => {
   try {
     await api.settings.saveLLM(form)
     await api.settings.saveFeatures(form.features)
+    // 同步回写 agentStore
+    if (form.ollama.model_name) {
+      agentStore.setModels(form.deepseek.model_name || agentStore.primaryModel, form.ollama.model_name)
+    }
     toast.success('配置保存成功！')
   } catch (e) {
     console.error('保存设置失败', e)
@@ -168,5 +190,6 @@ const saveSettings = async () => {
 
 onMounted(() => {
   loadSettings()
+  fetchOllamaModels()
 })
 </script>

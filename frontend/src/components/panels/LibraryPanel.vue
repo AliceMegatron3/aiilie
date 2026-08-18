@@ -1,10 +1,15 @@
 <template>
   <div class="space-y-4 p-4 relative">
-    <!-- 总督计划弹窗 -->
-    <DagPlanModal
-      :isOpen="isDagModalOpen"
-      :dag="currentDag"
-      @close="isDagModalOpen = false"
+    <!-- 量化设置弹窗 -->
+    <QuantizeModal
+      :is-open="isQuantModalOpen"
+      :book-id="quantBook.bookId"
+      :book-title="quantBook.title"
+      :all-models="allModels"
+      :default-model="agentStore.primaryModel || agentStore.workerModel || ''"
+      :default-mode="quantBook.mode"
+      @close="isQuantModalOpen = false"
+      @refresh-models="refreshQuantModels"
       @confirm="executeQuantize"
     />
     <div class="flex justify-between items-center mb-4">
@@ -65,6 +70,21 @@
 
         <!-- 选中后的操作按钮 -->
         <div class="mt-auto flex gap-2 z-10" v-if="selectedBookId === (book.book_id || book.id)">
+          <div class="w-full mb-2 z-20" @click.stop>
+            <label class="text-[10px] text-gray-500 mb-0.5 block">量化模型</label>
+            <select
+              v-model="agentStore.primaryModel"
+              class="w-full bg-[#121212] border border-[#3f3f46] rounded px-2 py-1 text-xs text-gray-200 focus:outline-none focus:border-indigo-500"
+            >
+              <option value="" disabled>选择模型...</option>
+              <option v-if="agentStore.workerModel" :value="agentStore.workerModel">🏠 {{ agentStore.workerModel }} (本地)</option>
+              <option
+                v-for="m in agentStore.availableModels.filter(m => m.name !== agentStore.workerModel)"
+                :key="m.id"
+                :value="m.name"
+              >🏠 {{ m.name }}</option>
+            </select>
+          </div>
           <button @click.stop="quantize(book.book_id || book.id, 'info')" class="flex-1 text-xs font-semibold bg-[#2a2a30] hover:bg-indigo-600 text-gray-300 hover:text-white py-1.5 rounded-lg transition-colors">
             ✦ 量化资料
           </button>
@@ -145,12 +165,12 @@
 import { ref, reactive, onMounted } from 'vue'
 import { api } from '../../api'
 import { useAgentStore } from '../../stores/agentStore'
-import DagPlanModal from '../DagPlanModal.vue'
+import QuantizeModal from '../QuantizeModal.vue'
 
 const agentStore = useAgentStore()
-const isDagModalOpen = ref(false)
-const currentDag = ref(null)
-const pendingQuantize = ref({ bookId: null, type: null })
+const isQuantModalOpen = ref(false)
+const quantBook = ref({ bookId: null, title: null, mode: 'both' })
+const allModels = ref([])
 
 const books = ref([])
 const selectedBookId = ref(null)
@@ -188,9 +208,7 @@ const loadBooks = async () => {
   isLoading.value = true
   try {
     const res = await api.library.listBooks()
-    if (res.data.success) {
-      books.value = res.data.data || []
-    }
+    books.value = res.data?.data || []
   } catch (e) {
     console.error('Failed to load books', e)
     showFeedback('加载书库失败', 'error')
@@ -234,38 +252,41 @@ const handleFileSelect = async (event) => {
 }
 
 const quantize = async (bookId, type) => {
-  // 不再直接量化，而是先请求总督生成调度计划图
+  const book = books.value.find((b) => (b.book_id || b.id) === bookId)
+  quantBook.value = { bookId, title: book?.title || book?.name || bookId, mode: type || 'both' }
+  // 刷新模型列表（本地检测 + 云端配置）
   try {
-    // 模拟本章内容嗅探（实际中应从后端读取书籍第一章内容）
-    const dummyContent = "主角拔剑怒吼：‘受死吧！’，随即爆发出强大的气势..."
-    const res = await api.orchestrator.plan(
-      bookId, 
-      dummyContent, 
-      agentStore.primaryModel, 
-      agentStore.workerModel
-    )
-    
-    if (res.data.success) {
-      currentDag.value = res.data.data
-      agentStore.setExecutionDag(res.data.data)
-      pendingQuantize.value = { bookId, type }
-      isDagModalOpen.value = true
-    }
-  } catch (e) {
-    showFeedback('无法获取总督调度计划，请重试', 'error')
+    const res = await api.models.ollama()
+    const local = (res.data?.data || []).map((m) => ({ ...m, type: 'local' }))
+    const cloud = agentStore.primaryModel ? [{ id: agentStore.primaryModel, name: agentStore.primaryModel, type: 'cloud' }] : []
+    allModels.value = [...local, ...cloud]
+  } catch {
+    allModels.value = []
+  }
+  isQuantModalOpen.value = true
+}
+
+const refreshQuantModels = async () => {
+  try {
+    const res = await api.models.ollama()
+    const local = (res.data?.data || []).map((m) => ({ ...m, type: 'local' }))
+    const cloud = agentStore.primaryModel ? [{ id: agentStore.primaryModel, name: agentStore.primaryModel, type: 'cloud' }] : []
+    allModels.value = [...local, ...cloud]
+  } catch {
+    allModels.value = []
   }
 }
 
-const executeQuantize = async () => {
-  isDagModalOpen.value = false
-  const { bookId, type } = pendingQuantize.value
-  if (!bookId || !type) return
+const executeQuantize = async (payload) => {
+  isQuantModalOpen.value = false
+  const { bookId } = quantBook.value
+  if (!bookId) return
 
   try {
-    const res = await api.library.quantize(bookId, type)
-    // 后端返回信封 { success, data: { task_id } }，需从 data 内层取 task_id
-    const payload = res.data?.data || res.data || {}
-    showFeedback(`量化任务已授权提交！任务ID: ${(payload.task_id || '').substring(0, 12)}...`)
+    // 透传 quantize_round（量化轮次）到后端；响应为 envelope {success,data:{task_id},...}
+    const res = await api.library.quantize(bookId, payload.mode, payload.model, payload.extraction, payload.quantizeRound)
+    const p = res.data?.data || res.data || {}
+    showFeedback(`量化任务已提交！任务ID: ${(p.task_id || '').substring(0, 12)}...`)
   } catch (e) {
     const detail = e.response?.data?.detail || '量化任务提交失败'
     showFeedback(detail, 'error')
@@ -281,7 +302,8 @@ const searchCards = async () => {
       min_utility: parseFloat(minUtility.value),
       min_entropy: parseFloat(minEntropy.value)
     })
-    searchResults.value = res.data.data || []
+    const data = res.data?.data || {}
+    searchResults.value = data.results ?? []
   } catch (e) {
     showFeedback('卡片搜索失败', 'error')
   }
@@ -297,6 +319,7 @@ const viewCardDetail = async (cardId) => {
 }
 
 onMounted(() => {
+  agentStore.fetchFromConfig()
   loadBooks()
 })
 </script>

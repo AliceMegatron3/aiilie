@@ -191,9 +191,21 @@ async function loadTimelines() {
 }
 
 async function loadEvents() {
-  const proj = projects.value.find(p => p.project_id === currentProjectId.value)
-  if (!proj) return
-  currentTimeline.value = (proj.timelines || []).find(tl => tl.timeline_id === currentTimelineId.value) || null
+  if (!currentProjectId.value || !currentTimelineId.value) {
+    currentTimeline.value = null
+    conflicts.value = []
+    showConflicts.value = false
+    return
+  }
+  // 阶段A：时间线数据来自 timeline.list（每个 timeline 内嵌 events），
+  // 不再从 projects 对象里找（项目列表不含 timelines）。
+  try {
+    const res = await api.timeline.list(currentProjectId.value)
+    const tls = res.data?.data || []
+    currentTimeline.value = tls.find(tl => tl.timeline_id === currentTimelineId.value) || null
+  } catch {
+    currentTimeline.value = null
+  }
   conflicts.value = []
   showConflicts.value = false
 }

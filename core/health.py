@@ -37,27 +37,63 @@ def runtime_environment() -> str:
     ).strip().lower()
 
 
-def validate_startup_configuration() -> list[str]:
-    """校验生产模式的关键安全配置，返回脱敏后的问题列表。"""
-    if runtime_environment() not in {"production", "prod"}:
-        return []
+def _effective_require_auth() -> bool:
+    """解析最终生效的 require_auth（环境变量优先于配置）。"""
+    raw = os.environ.get("AIILIE_SECURITY_REQUIRE_AUTH")
+    if raw is None:
+        return config_manager.get_bool("security.require_auth", False)
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
-    problems: list[str] = []
-    raw_require_auth = os.environ.get("AIILIE_SECURITY_REQUIRE_AUTH")
-    if raw_require_auth is None:
-        require_auth = config_manager.get_bool("security.require_auth", False)
-    else:
-        require_auth = raw_require_auth.strip().lower() in {"1", "true", "yes", "on"}
-    if not require_auth:
-        problems.append("production 环境必须开启 security.require_auth")
-    if not str(
+
+def _effective_auth_secret() -> str:
+    """读取生效的 auth_secret（环境变量 > 配置 > 落盘文件）。"""
+    return str(
         os.environ.get(
             "AIILIE_SECURITY_AUTH_SECRET",
             config_manager.get("security.auth_secret", ""),
         )
         or ""
-    ).strip():
-        problems.append("production 环境必须配置 auth_secret")
+    ).strip()
+
+
+def validate_startup_configuration() -> list[str]:
+    """校验生产模式的关键安全配置，返回脱敏后的问题列表。
+
+    阶段A fail-closed 规则：
+    - 生产环境必须开启 require_auth，且必须配置 auth_secret；
+    - 只要 require_auth=true，就必须有非空 auth_secret（防止匿名/可伪造启动，任何环境生效）；
+    - 生产环境禁止开启受限代码执行（隔离 worker 建成前 fail-closed）；
+    - 生产环境禁止绑定 0.0.0.0 暴露到所有接口。
+    """
+    env = runtime_environment()
+    problems: list[str] = []
+
+    require_auth = _effective_require_auth()
+    auth_secret = _effective_auth_secret()
+
+    if env in {"production", "prod"}:
+        if not require_auth:
+            problems.append("production 环境必须开启 security.require_auth")
+        if not auth_secret:
+            problems.append("production 环境必须配置 auth_secret")
+        if config_manager.get_bool("code_execution.enabled", False):
+            problems.append("production 环境禁止开启受限代码执行（隔离 worker 未就绪）")
+        bind_host = str(
+            os.environ.get(
+                "AIILIE_SERVER_HOST",
+                config_manager.get("server.host", "127.0.0.1"),
+            )
+            or ""
+        ).strip().lower()
+        if bind_host in {"0.0.0.0", "::"}:
+            problems.append("production 环境禁止绑定 0.0.0.0/:: 到所有接口")
+
+    # fail-closed：任何环境下，开了鉴权就必须有非空密钥
+    if require_auth and not auth_secret:
+        problems.append(
+            "security.require_auth=true 时必须配置 auth_secret（AIILIE_SECURITY_AUTH_SECRET 环境变量）"
+        )
+
     return problems
 
 
@@ -112,6 +148,15 @@ async def readiness_details(app: FastAPI) -> dict[str, Any]:
         "ok": initialized,
         "status": "ok" if initialized else "initialization_incomplete",
     }
+
+    ledger = getattr(app.state, "ledger_readiness", None)
+    if ledger is not None:
+        ledger_report = await ledger.report()
+        gate_ok = bool(ledger_report.get("ready_for_authoritative", False))
+        checks["ledger_authoritative_gate"] = {
+            "ok": gate_ok or not config_manager.get_bool("ledger.authoritative", False),
+            "status": "ok" if gate_ok else "blocked_until_migration_and_reconciliation",
+        }
 
     workers_ok, worker_message = _worker_check(app)
     checks["workers"] = {"ok": workers_ok, "status": worker_message}

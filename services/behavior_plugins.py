@@ -24,6 +24,7 @@ from models.behavior_plugin import (
     PluginStatus,
     TriggerContext,
 )
+from services.skill_governance import CAND_FULL, CAND_GRAY
 
 logger = logging.getLogger(__name__)
 
@@ -70,12 +71,13 @@ class BehaviorPluginRegistry:
 
     def __init__(self) -> None:
         self._plugins: dict[str, BehaviorPluginSpec] = {}
+        self._governed_ids: set[str] = set()
         for spec in _builtin_specs():
             self._plugins[spec.plugin_id] = spec
 
-    def register(self, spec: BehaviorPluginSpec, force: bool = False) -> BehaviorPluginSpec:
-        """注册插件。浅知识(QUANTIFIED)强制 CANDIDATE——永不直接上岗。"""
-        if spec.source == PluginSource.QUANTIFIED:
+    def register(self, spec: BehaviorPluginSpec, force: bool = False, governed: bool = False) -> BehaviorPluginSpec:
+        """注册插件；非治理 QUANTIFIED 只能进入候选池。"""
+        if spec.source == PluginSource.QUANTIFIED and not governed:
             spec.status = PluginStatus.CANDIDATE
             spec.gray_percent = 0
         if spec.plugin_id in self._plugins and not force:
@@ -83,6 +85,8 @@ class BehaviorPluginRegistry:
             if existing.version >= spec.version:
                 return existing
         self._plugins[spec.plugin_id] = spec
+        if governed:
+            self._governed_ids.add(spec.plugin_id)
         logger.info("[BehaviorPlugins] 注册 %s (%s/%s)", spec.plugin_id, spec.kind, spec.status.value)
         return spec
 
@@ -90,6 +94,10 @@ class BehaviorPluginRegistry:
         spec = self._plugins.get(plugin_id)
         if spec is None:
             return None
+        if plugin_id in self._governed_ids:
+            raise ValueError("治理投影行为插件状态必须由 SkillGovernance 管理")
+        if spec.source != PluginSource.CRAFTED and status == PluginStatus.ACTIVE and spec.status != PluginStatus.GRAY:
+            raise ValueError("学习型行为插件必须先经灰度验证")
         spec.status = status
         if status == PluginStatus.GRAY:
             spec.gray_percent = max(0, min(100, gray_percent))
@@ -193,7 +201,7 @@ def save_registry_overrides(registry: BehaviorPluginRegistry, path=None) -> None
         overrides = {
             pid: {"status": s.status.value, "gray_percent": s.gray_percent}
             for pid, s in registry._plugins.items()
-            if s.status != PluginStatus.CANDIDATE or s.gray_percent
+            if s.source == PluginSource.CRAFTED or s.status != PluginStatus.CANDIDATE or s.gray_percent
         }
         # 只保留与出厂态不同的件,减小漂移面
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -217,8 +225,11 @@ def load_registry_overrides(registry: BehaviorPluginRegistry, path=None) -> None
             if spec is None or not isinstance(ov, dict):
                 continue
             try:
-                spec.status = PluginStatus(ov.get("status", spec.status.value))
-                spec.gray_percent = int(ov.get("gray_percent", 0) or 0)
+                restored = PluginStatus(ov.get("status", spec.status.value))
+                if spec.source != PluginSource.CRAFTED and restored == PluginStatus.ACTIVE and spec.status != PluginStatus.GRAY:
+                    continue
+                spec.status = restored
+                spec.gray_percent = max(0, min(100, int(ov.get("gray_percent", 0) or 0)))
             except ValueError:
                 continue
     except Exception as exc:
@@ -261,6 +272,109 @@ def register_skill_candidates(skills: list, registry: BehaviorPluginRegistry | N
         except Exception as exc:
             logger.warning("[BehaviorPlugins] 技能候选注册失败(跳过): %s", exc)
     return registered
+
+
+def _spec_from_governance_item(item: dict[str, Any], artifact: dict[str, Any]) -> BehaviorPluginSpec | None:
+    """把 governance active skill 产物(artifact)重建为行为插件定义。
+
+    优先 artifact.behavior_plugin(治理插件定义,排除 CRAFTED 出厂件);
+    否则按 artifact.legacy_payload 重建(import_legacy_skill 落地路径:
+    legacy 导入 / 量化技能)。仅当存在行为插件证据时重建,避免把普通
+    技能误当行为插件;重启后不再依赖旧 universal_skills/InfoCard
+    兼容写路径(状态流转统一经 SkillGovernance)。
+    """
+    raw = artifact.get("behavior_plugin")
+    if isinstance(raw, dict):
+        try:
+            spec = BehaviorPluginSpec.model_validate(raw)
+        except Exception:
+            spec = None
+        if spec is not None and spec.source != PluginSource.CRAFTED:
+            return spec
+    legacy = artifact.get("legacy_payload")
+    if legacy is None:
+        return None  # 无行为插件/legacy 证据,不重建
+    prompt: str = ""
+    source = PluginSource.LEARNED
+    if isinstance(legacy, dict):
+        prompt = str(
+            legacy.get("prompt") or legacy.get("content_text")
+            or legacy.get("content") or legacy.get("prompt_override") or ""
+        )
+        if str(legacy.get("type") or "").upper() in ("TEMPLATE", "STYLE", "PATTERN"):
+            source = PluginSource.QUANTIFIED
+    elif isinstance(legacy, str) and legacy.strip():
+        prompt = legacy
+    prompt = (prompt or "").strip() or str(item.get("prompt") or "").strip()
+    if not prompt:
+        return None
+    if "{content}" not in prompt:
+        prompt = (
+            "请依据以下手法要点打磨文稿,直接输出完整正文,不要输出解释或JSON。\n"
+            f"手法要点:{prompt[:800]}\n\n文稿:\n{{content}}"
+        )
+    return BehaviorPluginSpec(
+        plugin_id="__governance_pending__",  # 由 rebuild_from_governance 覆写
+        name=str(item.get("name") or "governance-behavior-plugin")[:60],
+        description=f"来源:Governance({item.get('candidate_id')}, v{item.get('version')})",
+        prompt_template_id="behavior_editor_style",
+        prompt_override=prompt,
+        source=source,
+        version=max(1, int(item.get("version") or 1)),
+        run_order=200,
+    )
+
+
+def rebuild_from_governance(governance: Any, registry: BehaviorPluginRegistry | None = None) -> list[BehaviorPluginSpec]:
+    """从 Governance 完整重建行为插件运行时缓存(重启恢复的事实源)。
+
+    扫描 Governance 全部生效候选(FULL/GRAY,排除 RETIRED)的 active version,
+    按 artifact.behavior_plugin 或 artifact.legacy_payload 重建为内存注册表
+    插件;重建后统一命名 governed_{candidate_id}_v{version} 并标记治理投影,
+    状态流转只能经 SkillGovernance(retire/promote_full 等)——重启后不再依赖
+    旧的 universal_skills/InfoCard 兼容写路径。
+
+    调用位置:核心装配点(core/bootstrap.setup_skill_governance 等)在
+    SkillGovernance 实例化后调用一次;测试可传入独立 registry 与临时库。
+    """
+    reg = registry or behavior_plugin_registry
+    for plugin_id in list(reg._governed_ids):
+        reg._plugins.pop(plugin_id, None)
+    reg._governed_ids.clear()
+    cand_status = {c["candidate_id"]: c["status"] for c in governance.list_candidates()}
+    projected: list[BehaviorPluginSpec] = []
+    for row in governance.list_active_versions():
+        candidate_id = row.get("candidate_id")
+        cand_state = cand_status.get(candidate_id)
+        if cand_state not in (CAND_FULL, CAND_GRAY):
+            continue  # RETIRED/未生效态不进入运行时
+        active = governance.get_active_version(candidate_id)
+        if active is None:
+            continue
+        snapshot = active.get("snapshot") or {}
+        artifact = snapshot.get("artifact") or {}
+        version = int(active.get("version") or row.get("version") or 1)
+        spec = _spec_from_governance_item(
+            {
+                "candidate_id": candidate_id,
+                "version": version,
+                "name": snapshot.get("name") or candidate_id,
+                "prompt": active.get("prompt") or "",
+            },
+            artifact,
+        )
+        if spec is None:
+            continue
+        spec.plugin_id = f"governed_{candidate_id}_v{version}"
+        spec.status = PluginStatus.ACTIVE if cand_state == CAND_FULL else PluginStatus.GRAY
+        spec.gray_percent = 100 if cand_state == CAND_FULL else int(artifact.get("gray_percent", 0) or 0)
+        projected.append(reg.register(spec, force=True, governed=True))
+    return projected
+
+
+def sync_governed_behavior_plugins(governance: Any, registry: BehaviorPluginRegistry | None = None) -> list[BehaviorPluginSpec]:
+    """向后兼容别名:从 Governance 同步行为插件到运行时缓存(内部走完整重建)。"""
+    return rebuild_from_governance(governance, registry=registry)
 
 
 def _render_pass_prompt(spec: BehaviorPluginSpec, draft: str) -> str:

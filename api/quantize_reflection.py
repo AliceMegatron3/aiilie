@@ -5,9 +5,12 @@ import logging
 
 from services.indexer import CardIndexer
 from api.library import get_indexer
-from api.deps import verify_token
-from services.scratchpad_manager import scratchpad_manager
+from api.deps import get_ledger_repository, verify_token
+from services.ledger_repository import LedgerRepository
+from core.config_manager import config_manager
 from services.experience_manager import experience_manager
+from services.scratchpad_manager import scratchpad_manager
+from core.response import ok
 from models.cards import DataCard
 
 logger = logging.getLogger(__name__)
@@ -22,8 +25,8 @@ class ReflectionPayload(BaseModel):
 async def converge_scratchpad_and_reflect(
     book_id: str,
     payload: ReflectionPayload,
-    indexer: CardIndexer = Depends(get_indexer)
-) -> dict[str, Any]:
+    indexer: CardIndexer = Depends(get_indexer),
+    ledger: LedgerRepository = Depends(get_ledger_repository),) -> dict[str, Any]:
     """
     量化智能体调用此接口：
     1. 提交根据 scratchpad 分析出的宏观图表数据 (cards_data)，系统将其生成为 DataCard
@@ -51,7 +54,19 @@ async def converge_scratchpad_and_reflect(
             cards_to_save.append(card)
             saved_cards.append(card.card_id)
             
-        await indexer.save_cards(cards_to_save)
+        if not config_manager.get_bool("ledger.authoritative", False):
+            await indexer.save_cards(cards_to_save)
+
+        # 跨章统筹是派生指标，不伪造原文 source_anchor；Ledger 保留 draft artifact。
+        for card in cards_to_save:
+            await ledger.register_derived_artifact(
+                artifact_id=f"derived_{card.card_id}",
+                source_scope=book_id,
+                artifact_type="quantize_convergence_metric",
+                payload={"metric_type": card.metric_type, "value": card.value, "card_id": card.card_id},
+                source_document_id=book_id,
+                source_run_id="quantize-converge",
+            )
 
         # 2. 提交反思经验
         exp = experience_manager.add_experience(
@@ -62,14 +77,13 @@ async def converge_scratchpad_and_reflect(
         # 3. 销毁临时沙盒
         await scratchpad_manager.destroy_scratchpad(book_id)
 
-        return {
-            "success": True, 
-            "message": "数据量化收敛与反思提交成功",
-            "data": {
+        return ok(
+            {
                 "saved_cards_count": len(saved_cards),
                 "experience_id": exp["id"]
-            }
-        }
+            },
+            message="数据量化收敛与反思提交成功",
+        )
     except Exception as e:
         logger.error("收敛反思失败: %s", e)
         raise HTTPException(status_code=500, detail="收敛草稿与生成反思失败")
@@ -82,7 +96,7 @@ async def update_book_scratchpad(
     """供智能体在量化书籍的逐章循环中，记录全书的增量数据（如练气期铺垫字数等）。"""
     try:
         new_data = await scratchpad_manager.update_scratchpad(book_id, updates)
-        return {"success": True, "data": new_data}
+        return ok(new_data, message="草稿区已更新")
     except Exception as e:
         logger.error("更新 Scratchpad 失败: %s", e)
         raise HTTPException(status_code=500, detail="更新 Scratchpad 失败")

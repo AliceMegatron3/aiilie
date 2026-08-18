@@ -15,8 +15,14 @@ pytestmark = pytest.mark.asyncio
 
 
 @pytest.fixture
-async def indexer(isolated_paths):
-    idx = CardIndexer()
+async def indexer(isolated_paths, monkeypatch):
+    # 隔离全局 ledger 灰度：本文件验证 legacy 卡片存储语义（authoritative=false），
+    # 不受 config.yaml 中 ledger.authoritative=true 影响；monkeypatch 自动还原。
+    from core.config_manager import config_manager
+    ledger_cfg = config_manager._config.setdefault("ledger", {})
+    monkeypatch.setitem(ledger_cfg, "authoritative", False)
+    monkeypatch.setitem(ledger_cfg, "read_mode", "legacy")
+    idx = CardIndexer(isolated_paths / "index")
     await idx.initialize()
     yield idx
     await idx.close()

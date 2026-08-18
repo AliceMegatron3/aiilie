@@ -170,10 +170,28 @@ class QuantizeTask(BasePipelineTask):
     task_type: str = "quantize"
     book_id: str
     raw_command: str = ""
+    # ── Batch 2：显式 provenance（与 CandidateKnowledge 对齐，非 extra=allow 透传）──
+    # 允许 None：存量调用方（如 quantifier）以 None 构造，勿因显式化而拒绝。
+    run_id: str | None = None
+    source_document_id: str | None = None
+    parser: str | None = None
+    model: str | None = None
+
+class CodeExecutionTask(BasePipelineTask):
+    task_type: str = "code_execution"
+    request_payload: dict[str, Any] = Field(default_factory=dict)
+    plan_payload: dict[str, Any] = Field(default_factory=dict)
+
 
 class ReflectionTask(BasePipelineTask):
     task_type: str = "reflection"
     session_id: str | None = None
+    # ── Batch 2：显式 provenance（与 CandidateKnowledge/ReflectionSession 对齐）──
+    run_id: str | None = None
+    source_snapshot: str | None = None
+    parser: str | None = None
+    model: str | None = None
+    input_hash: str | None = None
 
 
 # ── API 请求/响应模型 ────────────────────────────────────────────

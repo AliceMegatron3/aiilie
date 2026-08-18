@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from api.deps import get_db, verify_token
+from core.response import ok
 from models.narrative import (
     ChapterOutline,
     ForeshadowThread,
@@ -31,14 +32,14 @@ def _service(db=Depends(get_db)) -> NarrativeStructureService:
 @router.get("/narrative/projects/{project_id}/volumes")
 async def list_volumes(project_id: str, svc: NarrativeStructureService = Depends(_service)):
     await svc.initialize()
-    return {"volumes": [v.model_dump() for v in await svc.get_volumes(project_id)]}
+    return ok({"volumes": [v.model_dump() for v in await svc.get_volumes(project_id)]})
 
 
 @router.post("/narrative/volumes")
 async def save_volume(volume: Volume, svc: NarrativeStructureService = Depends(_service)):
     await svc.initialize()
     saved = await svc.save_volume(volume)
-    return {"volume": saved.model_dump()}
+    return ok({"volume": saved.model_dump()})
 
 
 # ── 章纲要:解析 → 确认分离 ────────────────────────────────────
@@ -51,19 +52,19 @@ class ParseRequest(BaseModel):
 async def parse_outline(req: ParseRequest, svc: NarrativeStructureService = Depends(_service)):
     """自由文本 → 拍/预算/伏笔建议(预览,不落库;作者确认走 save+confirm)。"""
     result = svc.parse_outline(req.text)
-    return {
+    return ok({
         "beats": [b.model_dump() for b in result.beats],
         "budget": result.budget.model_dump() if result.budget else None,
         "thread_hints": [t.model_dump() for t in result.thread_hints],
         "needs_confirm": True,
-    }
+    })
 
 
 @router.post("/narrative/chapters")
 async def save_chapter(chapter: ChapterOutline, svc: NarrativeStructureService = Depends(_service)):
     await svc.initialize()
     saved = await svc.save_chapter(chapter)
-    return {"chapter": saved.model_dump()}
+    return ok({"chapter": saved.model_dump()})
 
 
 @router.post("/narrative/chapters/{chapter_id}/confirm-beats")
@@ -72,7 +73,7 @@ async def confirm_beats(chapter_id: str, svc: NarrativeStructureService = Depend
     chapter = await svc.confirm_beats(chapter_id)
     if chapter is None:
         raise HTTPException(status_code=404, detail="章纲要不存在")
-    return {"chapter": chapter.model_dump()}
+    return ok({"chapter": chapter.model_dump()})
 
 
 @router.get("/narrative/projects/{project_id}/chapters")
@@ -83,7 +84,7 @@ async def list_chapters(
 ):
     await svc.initialize()
     chapters = await svc.get_chapters(project_id, volume_id)
-    return {"chapters": [c.model_dump() for c in chapters]}
+    return ok({"chapters": [c.model_dump() for c in chapters]})
 
 
 # ── 节奏对账 ──────────────────────────────────────────────────
@@ -104,7 +105,7 @@ async def record_actuals(
     chapter.actuals = req.actuals
     saved = await svc.save_chapter(chapter)
     variance = svc.reconcile_pacing(saved)
-    return {"chapter": saved.model_dump(), "variance": variance.model_dump() if variance else None}
+    return ok({"chapter": saved.model_dump(), "variance": variance.model_dump() if variance else None})
 
 
 # ── 伏笔账本 ──────────────────────────────────────────────────
@@ -113,7 +114,7 @@ async def record_actuals(
 async def upsert_thread(thread: ForeshadowThread, svc: NarrativeStructureService = Depends(_service)):
     await svc.initialize()
     saved = await svc.upsert_thread(thread)
-    return {"thread": saved.model_dump()}
+    return ok({"thread": saved.model_dump()})
 
 
 class ThreadActionRequest(BaseModel):
@@ -134,7 +135,7 @@ async def thread_action(
         thread = await svc.payoff_thread(thread_id)
     if thread is None:
         raise HTTPException(status_code=404, detail="伏笔不存在")
-    return {"thread": thread.model_dump()}
+    return ok({"thread": thread.model_dump()})
 
 
 @router.get("/narrative/projects/{project_id}/threads/audit")
@@ -146,12 +147,12 @@ async def audit_threads(
     await svc.initialize()
     items = await svc.audit_threads(project_id, current_chapter)
     overdue = [i for i in items if i.overdue]
-    return {
+    return ok({
         "current_chapter": current_chapter,
         "open_threads": len(items),
         "overdue": len(overdue),
         "items": [i.model_dump() for i in items],
-    }
+    })
 
 
 # ── P6:弧线模式端点(前端治理面板消费) ─────────────────────────
@@ -161,7 +162,7 @@ async def list_arcs():
     """弧线模式清单(六出厂弧线+量化候选)。"""
     from services.arc_patterns import BUILTIN_ARC_PATTERNS
 
-    return {
+    return ok({
         "arcs": [
             {
                 "pattern_id": p.pattern_id, "name": p.name, "description": p.description,
@@ -170,7 +171,7 @@ async def list_arcs():
             }
             for p in BUILTIN_ARC_PATTERNS.values()
         ]
-    }
+    })
 
 
 class ApplyArcRequest(BaseModel):
@@ -195,14 +196,14 @@ async def apply_arc(
         svc, project_id, volume_id, pattern,
         n_chapters=req.n_chapters, start_number=req.start_number,
     )
-    return {
+    return ok({
         "applied": len(saved), "pattern": pattern.name,
         "chapters": [
             {"chapter_number": c.chapter_number, "arc_stage": c.arc_stage,
              "budget": c.budget.model_dump() if c.budget else None}
             for c in saved
         ],
-    }
+    })
 
 
 @router.get("/narrative/projects/{project_id}/arc-variance")
@@ -212,7 +213,7 @@ async def arc_variance(
 ):
     """弧线配方 vs 实际实绩偏差报告(只报告,不改预算)。"""
     await svc.initialize()
-    return await svc.arc_variance_report(project_id, volume_id)
+    return ok(await svc.arc_variance_report(project_id, volume_id))
 
 
 @router.post("/narrative/arcs/{pattern_id}/preview")
@@ -224,7 +225,7 @@ async def preview_arc(pattern_id: str, n_chapters: int = Query(ge=1, le=500)):
     if pattern is None:
         raise HTTPException(status_code=404, detail="弧线模式不存在")
     budgets = pattern.derive_budget_sequence(n_chapters)
-    return {
+    return ok({
         "pattern_id": pattern.pattern_id,
         "name": pattern.name,
         "n_chapters": n_chapters,
@@ -237,4 +238,4 @@ async def preview_arc(pattern_id: str, n_chapters: int = Query(ge=1, le=500)):
             }
             for i, b in enumerate(budgets)
         ],
-    }
+    })

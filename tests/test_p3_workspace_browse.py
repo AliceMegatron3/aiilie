@@ -63,7 +63,8 @@ def test_import_limits_enforced(tmp_path, monkeypatch):
 
 def test_workspace_browse_endpoint_mounted():
     from api.api_router import api_router
+    from tests.conftest import flatten_api_router
 
-    paths = {(getattr(r, "path", ""), tuple(sorted(getattr(r, "methods", None) or ()))) for r in api_router.routes}
+    paths = {(r.path, tuple(sorted(getattr(r, "methods", None) or ()))) for r in flatten_api_router(api_router)}
     flat = {p for p, _ in paths}
     assert any(p.endswith("/workspace/browse") for p in flat)

@@ -36,6 +36,7 @@ def test_empty_output_warning_code_present():
 
 def test_result_fallback_endpoint_mounted():
     from api.api_router import api_router
+    from tests.conftest import flatten_api_router
 
-    paths = {r.path for r in api_router.routes}
+    paths = {r.path for r in flatten_api_router(api_router)}
     assert any("command" in p and "result" in p for p in paths), "兜底查询端点应挂载"

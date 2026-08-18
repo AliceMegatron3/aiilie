@@ -21,9 +21,12 @@ def _now() -> str:
 
 
 def _baseline_path(doc_id: str) -> Path:
-    from core.path_resolver import get_app_data_dir
+    from core.path_resolver import get_app_data_dir, safe_join
 
-    return get_app_data_dir() / "document_generation_baselines" / f"{doc_id}.json"
+    # 阶段B：doc_id 可能含路径分隔/上级引用，必须 safe_join 防止越界写/读。
+    return safe_join(
+        get_app_data_dir() / "document_generation_baselines", f"{doc_id}.json"
+    )
 
 
 def set_generation_baseline(doc_id: str, task_id: str, generated_text: str) -> dict:

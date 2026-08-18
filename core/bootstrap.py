@@ -191,6 +191,14 @@ async def setup_llm_client(app: FastAPI) -> None:
     app.state.cloud_enabled = llm_client is not None
 
 
+async def setup_web_access(app: FastAPI) -> None:
+    """装配宿主控制的公网 HTTPS 抓取服务。"""
+    from services.web_access import WebAccessService
+
+    app.state.web_access_service = WebAccessService()
+    logger.info("[Bootstrap] 受控公网抓取服务已装配")
+
+
 # ==========================================
 # 反思系统 (Batch 4)
 # ==========================================
@@ -210,12 +218,39 @@ async def setup_reflection(app: FastAPI) -> None:
     app.state.rule_extractor = rule_extractor
     app.state.skill_extractor = skill_extractor
 
-    applier = OptimizationApplier(db)
-    await applier.initialize()
-    app.state.optimization_applier = applier
-
     indexer = CardIndexer()
     await indexer.initialize()
+    from services.ledger_repository import LedgerRepository
+    from services.ledger_outbox import LedgerOutbox
+    from services.ledger_read_facade import LedgerReadFacade
+    from services.ledger_dual_read import LedgerDualRead
+    from services.ledger_readiness import LedgerReadiness
+    from services.skill_governance import SkillGovernance
+    from services.skill_projection import SkillProjectionService
+    app.state.ledger_repository = LedgerRepository(indexer)
+    app.state.ledger_read_facade = LedgerReadFacade(indexer)
+    app.state.ledger_dual_read = LedgerDualRead(indexer, app.state.ledger_read_facade)
+    app.state.ledger_readiness = LedgerReadiness(indexer, app.state.ledger_dual_read)
+    app.state.ledger_outbox = LedgerOutbox(indexer)
+    await app.state.ledger_outbox.initialize()
+    await app.state.ledger_outbox.recover_running()
+    app.state.skill_governance = SkillGovernance()
+    app.state.skill_projection_service = SkillProjectionService(db, indexer, app.state.skill_governance)
+    # 旧投影与治理源对账服务（只读枚举始终可用，供开关关闭时观察缺口；
+    # 写导入仅在 feature.novel_multi_agent_enable 开启时由 setup_novel_multi_agent 调用）
+    from core.path_resolver import get_app_data_dir
+    from services.skill_projection_reconcile import SkillProjectionReconciler
+
+    app.state.skill_projection_reconcile = SkillProjectionReconciler(
+        governance=app.state.skill_governance,
+        indexer=indexer,
+        app_data_dir=get_app_data_dir(),
+        db=db,
+    )
+
+    applier = OptimizationApplier(db, skill_governance=app.state.skill_governance)
+    await applier.initialize()
+    app.state.optimization_applier = applier
     # 架构整改 1.1：ProjectManager 注入分支版本系统（开关关闭时自动回退旧逻辑）
     from services.version_control import VersionControlService
 
@@ -301,6 +336,7 @@ async def setup_novel_multi_agent(app: FastAPI) -> None:
         optimization_applier=applier,
         task_manager=task_manager,
         indexer=indexer,
+        skill_governance=getattr(app.state, "skill_governance", None),
     )
     app.state.novel_agent_learning_loop = learning_loop
 
@@ -310,11 +346,30 @@ async def setup_novel_multi_agent(app: FastAPI) -> None:
         optimization_applier=applier,
         dispatcher=app.state.model_dispatcher if hasattr(app.state, "model_dispatcher") else None,
         divergent_engine=app.state.divergent_engine if hasattr(app.state, "divergent_engine") else None,
+        skill_governance=getattr(app.state, "skill_governance", None),
     )
     supervisor._batch1_task_manager = getattr(app.state, "batch1_task_manager", None)
     supervisor._audit_store = audit_store
     supervisor._skill_store = skill_store
     app.state.novel_supervisor = supervisor
+
+    # 旧投影与治理源全量对账（写路径：未映射旧技能幂等导入为治理候选）。
+    # 失败不阻断启动，仅告警记录；开关关闭时由 setup_reflection 装配的对账服务
+    # 只允许只读的 list_projection_gaps（观察缺口），不执行本写导入。
+    reconciler = getattr(app.state, "skill_projection_reconcile", None)
+    if reconciler is not None:
+        try:
+            pr_report = await reconciler.reconcile()
+            logger.info(
+                "[Bootstrap] 旧投影对账完成: total=%s imported=%d already_migrated=%d changed=%d errors=%d",
+                pr_report.get("total_legacy"),
+                len(pr_report.get("imported_candidates", [])),
+                len(pr_report.get("already_migrated", [])),
+                len(pr_report.get("changed_after_migration", [])),
+                len(pr_report.get("errors", [])),
+            )
+        except Exception as exc:
+            logger.warning("[Bootstrap] 旧投影对账失败（不阻断启动）: %s", exc)
 
     logger.info("[Bootstrap] 多智能体小说创作闭环装配完成")
 
@@ -337,14 +392,55 @@ async def setup_quantification(app: FastAPI) -> None:
 
     registry = CardTypeRegistry()
     registry.register_default_types()
-    strategy = DefaultStrategy(registry=registry)
+
+    # 阶段4集成A（讨论稿第六章）：锁定场 must 集 → dispatcher 稳定前缀。
+    # 项目绑定锁定场时，史实硬约束卡以确定性顺序置于上下文最前
+    # （环境锁定 + DeepSeek 前缀缓存命中率）；无锁定场/异常时静默降级为空。
+    async def _lockfield_prefix(project_id: str | None) -> str:
+        if not project_id:
+            return ""
+        svc = getattr(app.state, "lockfield_service", None)
+        if svc is None:
+            return ""
+        config = await svc.get_field(project_id)
+        if config is None:
+            return ""
+        must = await svc.materialize_must_set(config)
+        if must.total == 0:
+            return ""
+        lines = [
+            f"- {card.get('content') or card.get('summary') or ''}".rstrip()
+            for card in must.cards
+        ]
+        lines = [ln for ln in lines if ln != "-"]
+        if not lines:
+            return ""
+        return "【世界观锁定·史实基线(硬约束,不可违背)】\n" + "\n".join(lines) + "\n\n"
+
+    dispatcher = ModelDispatcher(
+        task_manager, indexer, pm, lockfield_prefix_provider=_lockfield_prefix
+    )
+    # 提取策略：LLM 优先 + 规则兜底（默认 auto）。
+    # LLMExtractionStrategy 调用真实大模型提取；无模型/异常时 FallbackStrategy
+    # 自动回退 DefaultStrategy 规则提取，保证量化永不中断。
+    from strategies.extraction import DefaultStrategy, FallbackStrategy
+    from strategies.llm_extraction import LLMExtractionStrategy
+
+    rule_strategy = DefaultStrategy(registry=registry)
+    llm_strategy = LLMExtractionStrategy(registry=registry, dispatcher=dispatcher)
+    strategy = FallbackStrategy(
+        registry=registry, primary=llm_strategy, fallback=rule_strategy
+    )
     # P1-1.4：量化器复用批次1引擎的 TailContextManager（双模式落盘统一）
     quantifier = BookQuantifier(
         db, task_manager, indexer, registry, strategy,
         tail_manager=getattr(app.state, "tail_context_manager", None),
     )
 
-    # ── P0 修复：启动核心任务 Worker 消费量化/文档学习队列。 ──
+    from services.code_execution import CodeExecutionService
+    code_service = CodeExecutionService(db=db)
+    app.state.code_execution_service = code_service
+
     # 原先只装配了 quantifier 却从未调用 task_manager.start_workers，
     # 导致 submit_quantize_task 提交后任务永久停留在 PENDING，
     # 且重复量化保护会让后续所有量化请求 409 死锁（系统功能瘫痪）。
@@ -355,6 +451,14 @@ async def setup_quantification(app: FastAPI) -> None:
     # 排队语义一致；start_workers 带 _is_running 防重入。
     from models.task import BasePipelineTask
     async def _task_dispatcher(task: BasePipelineTask) -> None:
+        if task.task_type == "code_execution":
+            from models.code_execution import CodePlan, CodeTaskRequest
+            request = CodeTaskRequest.model_validate(getattr(task, "request_payload", {}))
+            plan_payload = dict(getattr(task, "plan_payload", {}) or {})
+            plan = CodePlan.model_validate({key: value for key, value in plan_payload.items() if key in CodePlan.model_fields})
+            plan = code_service.approve(plan, str(plan_payload.get("approval_id", "worker")))
+            await code_service.execute(request, plan, task_id=task.task_id)
+            return
         if task.task_type == "learning":
             engine = getattr(app.state, "learning_engine", None)
             if engine is not None:
@@ -428,33 +532,6 @@ async def setup_quantification(app: FastAPI) -> None:
     await task_manager.start_workers(patched_dispatcher, concurrency=1)
     logger.info("[Bootstrap] 核心任务 Worker 已启动 (concurrency=1, 量化/文档学习分派)")
 
-    # 阶段4集成A（讨论稿第六章）：锁定场 must 集 → dispatcher 稳定前缀。
-    # 项目绑定锁定场时，史实硬约束卡以确定性顺序置于上下文最前
-    # （环境锁定 + DeepSeek 前缀缓存命中率）；无锁定场/异常时静默降级为空。
-    async def _lockfield_prefix(project_id: str | None) -> str:
-        if not project_id:
-            return ""
-        svc = getattr(app.state, "lockfield_service", None)
-        if svc is None:
-            return ""
-        config = await svc.get_field(project_id)
-        if config is None:
-            return ""
-        must = await svc.materialize_must_set(config)
-        if must.total == 0:
-            return ""
-        lines = [
-            f"- {card.get('content') or card.get('summary') or ''}".rstrip()
-            for card in must.cards
-        ]
-        lines = [ln for ln in lines if ln != "-"]
-        if not lines:
-            return ""
-        return "【世界观锁定·史实基线(硬约束,不可违背)】\n" + "\n".join(lines) + "\n\n"
-
-    dispatcher = ModelDispatcher(
-        task_manager, indexer, pm, lockfield_prefix_provider=_lockfield_prefix
-    )
     divergent_engine = DivergentEngine(dispatcher, indexer)
 
     app.state.registry = registry
@@ -676,6 +753,24 @@ async def _batch1_engine_worker(app: FastAPI) -> None:
             await asyncio.sleep(0.5)
 
 
+async def _ledger_outbox_worker(app: FastAPI) -> None:
+    """Drain Ledger compatibility events without changing authoritative mode."""
+    outbox = getattr(app.state, "ledger_outbox", None)
+    if outbox is None:
+        return
+    while True:
+        try:
+            result = await outbox.drain_compat(limit=100)
+            if result["applied"] or result["failed"] or result["dead_letter"]:
+                logger.info("[LedgerOutbox] drain=%s", result)
+            await asyncio.sleep(1.0 if result["applied"] else 5.0)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("[LedgerOutbox] 消费异常: %s", exc)
+            await asyncio.sleep(5.0)
+
+
 async def _queue_worker(app: FastAPI) -> None:
     """后台轮询守护进程：消费 priority_task_queue 中的任务。"""
     from services.priority_queue import PriorityTaskQueue
@@ -729,6 +824,9 @@ def start_background_tasks(app: FastAPI) -> None:
     app.state.bg_reflection_task = asyncio.create_task(
         _supervised_background_worker("reflection", lambda: _auto_reflection_worker(app))
     )
+    app.state.bg_ledger_outbox_task = asyncio.create_task(
+        _supervised_background_worker("ledger-outbox", lambda: _ledger_outbox_worker(app))
+    )
     app.state.bg_queue_task = asyncio.create_task(
         _supervised_background_worker("priority-queue", lambda: _queue_worker(app))
     )
@@ -759,6 +857,7 @@ async def stop_background_tasks(app: FastAPI) -> None:
     """
     for name in (
         "bg_reflection_task",
+        "bg_ledger_outbox_task",
         "bg_queue_task",
         "bg_batch1_task",
         "bg_emotion_archive_task",
@@ -853,6 +952,16 @@ async def initialize_app(app: FastAPI) -> None:
     degraded = await run_stages(app, stages)
     app.state.degraded_stages = degraded
 
+    if config_manager.get_bool("ledger.authoritative", False):
+        readiness = getattr(app.state, "ledger_readiness", None)
+        if readiness is None:
+            app.state.initialization_error = "ledger_readiness_unavailable"
+            raise RuntimeError("Ledger authoritative 门禁服务未装配，拒绝启动")
+        report = await readiness.report()
+        if not report.get("ready_for_authoritative", False):
+            app.state.initialization_error = "ledger_authoritative_not_ready"
+            raise RuntimeError("Ledger authoritative 门禁未通过: " + "; ".join(report.get("blockers", [])))
+
     start_background_tasks(app)
     app.state.initialization_complete = True
     if degraded:
@@ -921,6 +1030,7 @@ def build_startup_stages() -> list[StartupStage]:
         StartupStage("batch1_engine", setup_batch1_engine, depends_on=("base",),
                      note="拆分器→分段管线→合并器"),
         StartupStage("llm_client", setup_llm_client, note="云端适配器(未启用则 None)"),
+        StartupStage("web_access", setup_web_access, note="宿主受控公网 HTTPS 抓取"),
         StartupStage("reflection", setup_reflection, depends_on=("base",),
                      note="抽取器/应用器/索引器/锁定场"),
         StartupStage("quantification", setup_quantification,

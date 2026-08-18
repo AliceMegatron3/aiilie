@@ -10,6 +10,7 @@ import yaml
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from utils.resource_path import get_resource_path
+from core.response import ok
 from api.deps import verify_token
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/settings", tags=["Settings"], dependencies=[Depends(verify_token)])
@@ -70,13 +71,13 @@ def load_settings() -> dict:
         raise HTTPException(status_code=500, detail="解析配置文件失败")
 # ====== Endpoints ======
 @router.get("/llm", summary="获取当前大模型配置")
-async def get_llm_settings() -> LLMSettings:
+async def get_llm_settings() -> dict:
     data = load_settings()
     # 返回配置时对 api_key 做脱敏处理，避免前端暴露完整密钥
     settings = LLMSettings(**data)
     if settings.deepseek.api_key:
         settings.deepseek.api_key = _mask_api_key(settings.deepseek.api_key)
-    return settings
+    return ok(settings.model_dump(), message="success")
 @router.post("/llm", summary="保存大模型配置")
 async def save_llm_settings(
     settings: LLMSettings,
@@ -119,7 +120,7 @@ async def save_llm_settings(
             logger.info("LLM 客户端已随配置热更新重建")
         except Exception as e:
             logger.warning("LLM 客户端热更新失败（不影响配置保存）: %s", e)
-        return {"status": "ok", "message": "配置保存成功"}
+        return ok({"status": "ok"}, message="配置保存成功")
     except Exception as e:
         logger.error(f"保存 LLM 配置失败: {e}")
         raise HTTPException(status_code=500, detail="保存配置文件失败")
@@ -145,15 +146,36 @@ def _looks_masked(key: str) -> bool:
     return False
 
 # ====== Feature Settings Endpoint ======
+# 阶段A：暴露前端 UI 门控所需的全部功能开关，来源统一为 config.yaml 的 feature 分支。
+_FEATURE_KEYS = (
+    "emotion_quantify_enable",
+    "branch_version_enable",
+    "novel_multi_agent_enable",
+    "storyboard_enable",
+    "tts_enable",
+    "deep_thinking_enable",
+    "timeline_enable",
+)
+
+
 class FeatureSettings(BaseModel):
     emotion_quantify_enable: bool = Field(default=False)
+    branch_version_enable: bool = Field(default=False)
+    novel_multi_agent_enable: bool = Field(default=False)
+    storyboard_enable: bool = Field(default=True)
+    tts_enable: bool = Field(default=True)
+    deep_thinking_enable: bool = Field(default=True)
+    timeline_enable: bool = Field(default=True)
+
 
 @router.get("/features", summary="获取系统功能开关配置")
-async def get_feature_settings() -> FeatureSettings:
+async def get_feature_settings() -> dict:
     from core.config_manager import config_manager
-    return FeatureSettings(
-        emotion_quantify_enable=config_manager.get_bool("feature.emotion_quantify_enable", False)
+
+    settings = FeatureSettings(
+        **{key: config_manager.get_bool(f"feature.{key}", False) for key in _FEATURE_KEYS}
     )
+    return ok(settings.model_dump(), message="success")
 
 @router.post("/features", summary="保存系统功能开关配置")
 async def save_feature_settings(settings: FeatureSettings):
@@ -168,14 +190,18 @@ async def save_feature_settings(settings: FeatureSettings):
                 
         if "feature" not in data:
             data["feature"] = {}
-            
-        data["feature"]["emotion_quantify_enable"] = settings.emotion_quantify_enable
-        
+
+        # 阶段C：持久化全部 feature 开关（_FEATURE_KEYS），reload 后运行时 gate 立即生效。
+        for key in _FEATURE_KEYS:
+            value = getattr(settings, key, None)
+            if value is not None:
+                data["feature"][key] = bool(value)
+
         with open(main_path, "w", encoding="utf-8") as f:
             yaml.dump(data, f, allow_unicode=True, sort_keys=False)
-            
+
         config_manager.reload()
-        return {"status": "ok", "message": "功能开关配置保存成功"}
+        return ok({"status": "ok"}, message="功能开关配置保存成功（运行时 gate 已即时生效，无需重启）")
     except Exception as e:
         logger.error(f"保存功能开关失败: {e}")
         raise HTTPException(status_code=500, detail="保存配置文件失败")

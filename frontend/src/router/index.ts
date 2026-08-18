@@ -19,8 +19,24 @@ const routes = [
     component: () => import('../components/views/LibraryView.vue')
   },
   {
+    path: '/cards',
+    component: () => import('../components/views/CardsView.vue')
+  },
+  {
+    path: '/ledger',
+    component: () => import('../components/views/LedgerView.vue')
+  },
+  {
+    path: '/code',
+    component: () => import('../components/views/CodeView.vue')
+  },
+  {
     path: '/agents',
     component: () => import('../components/views/AgentsView.vue')
+  },
+  {
+    path: '/experience',
+    component: () => import('../components/views/ExperienceView.vue')
   },
   {
     path: '/templates',
@@ -55,16 +71,8 @@ const routes = [
     component: () => import('../components/views/NarrativeView.vue')
   },
   {
-    path: '/lockfield',
-    component: () => import('../components/views/LockfieldView.vue')
-  },
-  {
     path: '/knowledge-gaps',
     component: () => import('../components/views/KnowledgeGapsView.vue')
-  },
-  {
-    path: '/ensemble-history',
-    component: () => import('../components/views/EnsembleHistoryView.vue')
   },
   {
     path: '/plugins',
@@ -73,6 +81,22 @@ const routes = [
   {
     path: '/workspace',
     component: () => import('../components/views/WorkspaceView.vue')
+  },
+  {
+    path: '/templates',
+    component: () => import('../components/views/TemplatesView.vue')
+  },
+  {
+    path: '/deep-think',
+    component: () => import('../components/views/DeepThinkView.vue')
+  },
+  {
+    path: '/reflections',
+    component: () => import('../components/views/ReflectionsView.vue')
+  },
+  {
+    path: '/poetry',
+    component: () => import('../views/PoetryView.vue')
   }
 ]
 

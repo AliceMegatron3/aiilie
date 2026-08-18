@@ -16,8 +16,9 @@ class OptimizationApplier:
     """
     负责固化、管理、分发动态优化规则与高频创作模板。
     """
-    def __init__(self, db: DatabaseManager) -> None:
+    def __init__(self, db: DatabaseManager, skill_governance=None) -> None:
         self.db = db
+        self.skill_governance = skill_governance
     async def initialize(self) -> None:
         """初始化批次4独有的下发配置表，严格隔离不污染存量业务数据"""
         try:
@@ -66,16 +67,35 @@ class OptimizationApplier:
                 r.created_at
             ))
         skill_params = []
-        for s in skills:
-            skill_params.append((
-                s.skill_id,
-                s.type,
-                s.name,
-                json.dumps(s.content, ensure_ascii=False),
-                json.dumps(s.source_cards, ensure_ascii=False),
-                s.applicability,
-                s.created_at
-            ))
+        candidate_ids: list[str] = []
+        if self.skill_governance is not None:
+            for skill in skills:
+                prompt = str(skill.content.get("prompt") or skill.content.get("content") or json.dumps(skill.content, ensure_ascii=False))
+                candidate_id = self.skill_governance.submit_candidate(
+                    skill.name,
+                    prompt,
+                    confidence=0.7,
+                    source_task="reflection",
+                    source_reflection=skill.skill_id,
+                    artifact={
+                        "type": skill.type,
+                        "content": skill.content,
+                        "source_cards": skill.source_cards,
+                        "applicability": skill.applicability,
+                        "created_at": skill.created_at,
+                    },
+                )
+                try:
+                    self.skill_governance.auto_review(candidate_id)
+                except Exception:
+                    pass
+                candidate_ids.append(candidate_id)
+        else:
+            for s in skills:
+                skill_params.append((
+                    s.skill_id, s.type, s.name, json.dumps(s.content, ensure_ascii=False),
+                    json.dumps(s.source_cards, ensure_ascii=False), s.applicability, s.created_at,
+                ))
         try:
             if rule_params:
                 # 采用 INSERT OR IGNORE 防止相同的挖掘产物重复写入
@@ -91,7 +111,7 @@ class OptimizationApplier:
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                 """, skill_params)
             await self.db.conn.commit()
-            logger.info("[Applier] 成功部署 %d 条新规则，%d 项新技能！", len(rule_params), len(skill_params))
+            logger.info("[Applier] 成功部署 %d 条新规则，提交 %d 项技能候选。", len(rule_params), len(candidate_ids) or len(skill_params))
         except Exception as e:
             logger.error("下发优化发现成果失败: %s", e)
             raise
@@ -158,33 +178,36 @@ class OptimizationApplier:
         return matched_rules
     async def fetch_recommended_skills(
         self,
-        genre: str | None = None
+        genre: str | None = None,
+        task_id: str = "",
     ) -> list[UniversalSkill]:
-        """
-        [外置扩展位]
-        供 Batch 3 项目引擎查询，在生成内容时获取辅助技能模板。
-        """
-        cursor = await self.db.conn.execute("SELECT * FROM universal_skills ORDER BY created_at DESC LIMIT 50")
-        rows = await cursor.fetchall()
-        columns = [desc[0] for desc in cursor.description]
-        results = []
-        for row in rows:
-            row_dict = dict(zip(columns, row))
-            try:
-                row_dict["content"] = json.loads(row_dict["content"]) if row_dict.get("content") else {}
-            except (json.JSONDecodeError, TypeError):
-                row_dict["content"] = {}
-            try:
-                row_dict["source_cards"] = json.loads(row_dict["source_cards"]) if row_dict.get("source_cards") else []
-            except (json.JSONDecodeError, TypeError):
-                row_dict["source_cards"] = []
-            # 简易题材命中过滤，提升推荐相关性
-            if genre and genre != "unknown":
-                applicability = row_dict.get("applicability", "") or ""
-                if genre not in applicability and "模板" not in row_dict["name"]:
+        """运行时只读取治理层已 FULL/GRAY 生效的版本。"""
+        governance = self.skill_governance
+        if governance is None:
+            from services.skill_governance import SkillGovernance
+            governance = SkillGovernance()
+        try:
+            resolved = governance.resolve_active_skills({"task_id": task_id, "genre": genre or ""})
+            results: list[UniversalSkill] = []
+            for item in resolved:
+                artifact = item.get("artifact") or {}
+                applicability = str(artifact.get("applicability") or "")
+                if genre and genre != "unknown" and genre not in applicability and genre not in str(item["name"]):
                     continue
-            results.append(UniversalSkill(**row_dict))
-        return results
+                content = artifact.get("content") or {"prompt": item["prompt"]}
+                results.append(UniversalSkill(
+                    skill_id=str(item["candidate_id"]),
+                    type=str(artifact.get("type") or "TEMPLATE"),
+                    name=str(item["name"]),
+                    content=content if isinstance(content, dict) else {"prompt": str(content)},
+                    source_cards=list(artifact.get("source_cards") or []),
+                    applicability=applicability,
+                    created_at=str(artifact.get("created_at") or ""),
+                ))
+            return results
+        except Exception as exc:
+            logger.warning("SkillGovernance active 读取失败: %s", exc)
+            return []
     # ==========================================
     # 规则风控与治理操作
     # ==========================================

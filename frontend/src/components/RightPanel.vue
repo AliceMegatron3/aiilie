@@ -43,7 +43,7 @@
 
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import { api } from '../api'
+import { api, unwrap } from '../api'
 import { toast } from '../utils/toast'
 import { useWebSocket } from '../composables/useWebSocket'
 import { useVisibilityPolling } from '../composables/useVisibilityPolling'
@@ -59,7 +59,19 @@ const isChatExpanded = ref(true)
 
 // 模式: rapid | think | complex
 type Mode = 'rapid' | 'think' | 'complex'
-interface ChatMessage { role: 'ai' | 'user'; content: string; thinking_progress: string }
+interface ChatMessage {
+  role: 'ai' | 'user'
+  content: string
+  thinking_progress: string
+  quantize_progress?: {
+    book_id: string
+    completed: number
+    total: number
+    cards_in_seg: number
+    percent: number
+    round_label: string
+  }
+}
 const currentMode = ref<Mode>('rapid')
 
 const messages = ref<ChatMessage[]>([{ role: 'ai', content: '系统已就绪。支持快速(Rapid)与深思(Think)双模式切换。', thinking_progress: '' }])
@@ -100,6 +112,61 @@ const { connected: wsConnected, subscribeTask, unsubscribeTask } = useWebSocket(
         lastMsg.content += data.content
         scrollToBottom()
       }
+    } else if (data.type === 'quantize_start') {
+      const roundMap: Record<number, string> = { 1: '粗扫', 2: '深挖', 3: '精炼' }
+      const roundText = roundMap[data.round as number] || `R${data.round}`
+      messages.value.push({
+        role: 'ai',
+        content: `[量化启动] 正在量化《${data.book_id}》，轮次：${roundText}，模式：${data.mode || 'both'}，模型：${data.model || '默认'}`,
+        thinking_progress: '',
+        quantize_progress: {
+          book_id: data.book_id,
+          completed: 0,
+          total: 0,
+          cards_in_seg: 0,
+          percent: 0,
+          round_label: roundText,
+        }
+      })
+      scrollToBottom()
+    } else if (data.type === 'quantize_progress') {
+      // 在已有量化启动消息上更新进度条，而非新增消息
+      const lastMsg = messages.value[messages.value.length - 1]
+      if (lastMsg && lastMsg.role === 'ai' && lastMsg.quantize_progress) {
+        lastMsg.quantize_progress.completed = data.completed
+        lastMsg.quantize_progress.total = data.total
+        lastMsg.quantize_progress.cards_in_seg = data.cards_in_seg
+        lastMsg.quantize_progress.percent = data.total > 0 ? Math.round((data.completed / data.total) * 100) : 0
+      } else {
+        messages.value.push({
+          role: 'ai',
+          content: '',
+          thinking_progress: '',
+          quantize_progress: {
+            book_id: data.book_id,
+            completed: data.completed,
+            total: data.total,
+            cards_in_seg: data.cards_in_seg,
+            percent: data.total > 0 ? Math.round((data.completed / data.total) * 100) : 0,
+            round_label: '',
+          }
+        })
+      }
+      scrollToBottom()
+    } else if (data.type === 'quantize_done') {
+      // 完成时将进度固定到 100%
+      const lastMsg = messages.value[messages.value.length - 1]
+      if (lastMsg && lastMsg.role === 'ai' && lastMsg.quantize_progress) {
+        lastMsg.quantize_progress.percent = 100
+        lastMsg.quantize_progress.completed = lastMsg.quantize_progress.total
+        lastMsg.quantize_progress.round_label = '完成'
+      }
+      messages.value.push({
+        role: 'ai',
+        content: `[量化完成] 书籍《${data.book_id}》量化已完成，已触发反思学习`,
+        thinking_progress: ''
+      })
+      scrollToBottom()
     }
   },
 })
@@ -190,7 +257,7 @@ const updateProjectMode = async (newMode?: string) => {
 const pollQueueStatus = async () => {
   try {
     const res = await api.system.queue()
-    queueInfo.value = res.data
+    queueInfo.value = unwrap<any>(res)
   } catch (e) {
     // 静默失败
   }
@@ -205,8 +272,9 @@ const loadLatestChatHistory = async () => {
       // 取最新的活动会话加载历史
       const latestSession = listRes.data.data[0]
       const histRes = await api.system.chatHistory(latestSession.session_id)
-      if (histRes.data && Array.isArray(histRes.data) && histRes.data.length > 0) {
-        messages.value = histRes.data.map(m => ({
+      const history = unwrap<any>(histRes)
+      if (Array.isArray(history) && history.length > 0) {
+        messages.value = history.map(m => ({
           role: m.role,
           content: m.content,
           thinking_progress: m.thinking_progress || ''
@@ -234,6 +302,17 @@ const sendCommand = async (text: string) => {
       toast.warning(res.data.message || '系统正在全力进行书库量化，创作通道暂时挂起。')
       messages.value.pop()
       isProcessing.value = false
+      return
+    }
+
+    // B 类收口：统一指令网关对项目管理/文档学习返回 bypassed——不伪装"任务已分发/ID: N/A"，
+    // 由前端项目/文档面板直接调用真实 API（项目管理 → 项目面板；文档学习 → 文档编辑器内 /docs/{id}/learn）。
+    if (res.data.status === 'bypassed') {
+      messages.value.push({
+        role: 'ai',
+        content: `[系统回执] ${res.data.message || '该指令已绕过统一指令网关，请使用对应前端面板直接操作（bypassed）。'}`,
+        thinking_progress: ''
+      })
       return
     }
 

@@ -1,5 +1,14 @@
 <template>
   <div class="space-y-6 p-4">
+    <!-- 方向报告 B 类：专员开关/风格透镜仅改前端 Pinia，未接到后端任务执行链路，
+         明确标注 DISABLED（待插件内核/受控执行能力成型后再接入），避免误以为已生效。 -->
+    <div class="bg-[#18181b] border border-[#2a2a30] rounded-xl p-3 text-[10px] text-gray-400 leading-relaxed">
+      <span class="font-bold text-amber-400">DISABLED</span>
+      <span class="ml-1">· feature: agent.specialist_control · reason: provider_not_configured</span>
+      <div class="mt-1">当前专员开关与风格透镜仅保存在本端（前端状态），尚未接入后端任务执行与插件内核，
+        改动不会影响实际的拆书/量化/反思任务。待 V0.3–V0.5 受控执行与插件 SDK 成型后再接入。</div>
+    </div>
+
     <!-- Header -->
     <div>
       <h2 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">六部专员控制台</h2>

@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
-import { api } from '../api'
+import { api, unwrap } from '../api'
 
 // ============================================================
 // TaskStatusTracker — P4-4 前端全状态可视化
@@ -121,8 +121,8 @@ async function fetchResources() {
       api.system.resourceStats(),
       api.system.queue(),
     ])
-    resourceStats.value = statsRes?.data ?? statsRes
-    queueInfo.value = queueRes?.data ?? queueRes
+    resourceStats.value = unwrap<any>(statsRes)
+    queueInfo.value = unwrap<any>(queueRes)
   } catch (e) {
     // 资源面板降级：获取失败仅隐藏面板，不影响任务主展示
   }

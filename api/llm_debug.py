@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from core.path_resolver import get_app_data_dir
 from utils.llm_adapter import DeepSeekClient
 from utils.resource_path import get_resource_path
+from core.response import ok
 from api.deps import verify_token
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/llm/deepseek", tags=["LLM Debug"], dependencies=[Depends(verify_token)])
@@ -37,15 +38,18 @@ async def ping_deepseek():
     """仅读取配置并检查开关是否开启、密钥是否填写。"""
     config = load_deepseek_config()
     if not config:
-        return {"status": "error", "message": "配置节点 deepseek 不存在"}
-    
-    return {
-        "status": "ok",
-        "api_base": config.get("api_base"),
-        "model_name": config.get("model_name"),
-        "is_enabled": config.get("enable_switch", False),
-        "has_api_key": bool(config.get("api_key"))
-    }
+        return ok({"status": "error", "message": "配置节点 deepseek 不存在"}, message="deepseek 配置缺失")
+
+    return ok(
+        {
+            "status": "ok",
+            "api_base": config.get("api_base"),
+            "model_name": config.get("model_name"),
+            "is_enabled": config.get("enable_switch", False),
+            "has_api_key": bool(config.get("api_key")),
+        },
+        message="success",
+    )
 @router.post("/chat", summary="直接调试 DeepSeek 推理能力")
 async def debug_chat(request: DebugPromptRequest):
     """
@@ -67,7 +71,8 @@ async def debug_chat(request: DebugPromptRequest):
     
     try:
         reply = await client.generate_completion(request.prompt, temperature=request.temperature)
-        return {"response": reply}
+        return ok({"response": reply}, message="success")
     except Exception as e:
         logger.error("DeepSeek 调试调用失败: %s", e)
-        raise HTTPException(status_code=502, detail=str(e))
+        from core.errors import http_error
+        raise http_error(502, "LLM_DEBUG_CALL_FAILED")

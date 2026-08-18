@@ -85,6 +85,9 @@ class TTSDispatcher:
         """合成语音，返回 {"file_name", "cache_hit", "engine"}。音频文件位于 tts_cache 目录。"""
         if not text or not text.strip():
             raise ValueError("合成文本不能为空")
+        # 阶段B：单次合成文本长度上限，控制合成时长与成本。
+        if len(text) > 8000:
+            raise ValueError("合成文本过长（超过 8000 字符），请分段合成")
         engine = engine or config_manager.get("tts.engine", "vits_local")
         voice = voice or ""
 
@@ -108,12 +111,35 @@ class TTSDispatcher:
         """按文件名解析音频物理路径（safe_join 防路径穿越）。"""
         return safe_join(self._cache_dir, file_name)
 
+    def provider_available(self, engine: str | None = None) -> bool:
+        """判断指定引擎是否有可用 provider（未配置/平台不支持视为不可用）。
+
+        用于给 API 层提前返回结构化 DISABLED，避免失败才暴露。
+        """
+        engine = engine or config_manager.get("tts.engine", "vits_local") or "vits_local"
+        engine = str(engine)
+        if engine == "vits_local":
+            # VITS 本地依赖 Windows SAPI；非 Windows 不可用
+            import sys
+
+            return sys.platform == "win32"
+        if engine == "azure":
+            return bool(config_manager.get("tts.azure_key", "") and config_manager.get("tts.azure_region", ""))
+        if engine == "elevenlabs":
+            return bool(config_manager.get("tts.elevenlabs_api_key", ""))
+        return False
+
     # ── 引擎实现 ────────────────────────────────────────────────
 
     def _synthesize_vits_local(self, text: str, target: Path) -> str:
-        """VITS 本地引擎：Windows 使用系统 SAPI 合成 WAV（离线零依赖）；非 Windows 输出占位音频文件。"""
+        """VITS 本地引擎：Windows 使用系统 SAPI 合成 WAV（离线零依赖）。
+
+        阶段D：非 Windows 或合成失败不再伪造静音 WAV“成功”。默认抛异常表明状态未被
+        满足；仅在显式开启 tts.allow_silent_placeholder（demo profile）时回退占位音频。
+        """
         import sys
 
+        failure_reason = ""
         if sys.platform == "win32":
             try:
                 import subprocess
@@ -135,19 +161,27 @@ class TTSDispatcher:
                     timeout=60,
                 )
                 if completed.returncode != 0:
-                    logger.warning(
-                        "[TTS] 本地 SAPI 合成失败 (rc=%s): %s",
-                        completed.returncode,
-                        completed.stderr.decode("utf-8", errors="ignore")[:200],
+                    failure_reason = (
+                        f"本地 SAPI 合成失败 (rc={completed.returncode}): "
+                        f"{completed.stderr.decode('utf-8', errors='ignore')[:200]}"
                     )
-                    raise RuntimeError("本地 TTS 合成失败")
-                if target.exists() and target.stat().st_size > 44:
+                    logger.warning("[TTS] %s", failure_reason)
+                elif target.exists() and target.stat().st_size > 44:
                     return target.name
-            except Exception as exc:
-                logger.warning("[TTS] 本地 TTS 引擎异常: %s", exc)
-        # 兜底：生成最小静音 WAV 占位（保证链路可用，前端可正常播放空音频）
-        self._write_silent_wav(target)
-        return target.name
+                else:
+                    failure_reason = "本地 SAPI 合成未产出有效音频"
+            except Exception as exc:  # pragma: no cover
+                failure_reason = f"本地 TTS 引擎异常: {exc!s}"
+                logger.warning("[TTS] %s", failure_reason)
+        else:
+            failure_reason = "本地 TTS 仅支持 Windows（SAPI）"
+
+        # 阶段D：默认拒绝伪造成功。仅显式 demo 开关下才允许静音占位。
+        if config_manager.get_bool("tts.allow_silent_placeholder", False):
+            self._write_silent_wav(target)
+            return target.name
+
+        raise RuntimeError(f"本地 TTS 不可用（未生成音频）: {failure_reason or 'unsupported_platform'}")
 
     async def _synthesize_azure(self, text: str, voice: str, target: Path) -> str:
         """Azure 语音服务（需 tts.azure_key / tts.azure_region）。"""

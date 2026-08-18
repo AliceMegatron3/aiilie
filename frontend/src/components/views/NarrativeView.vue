@@ -58,7 +58,7 @@
             <div v-if="parsed.beats?.length" class="mt-2 space-y-1">
               <div v-for="(b, i) in parsed.beats" :key="i" class="text-[11px] text-gray-400 border-l-2 border-indigo-500/40 pl-2">{{ b.text }}<span v-if="b.role_hint" class="text-gray-600 ml-1">[{{ b.role_hint }}]</span></div>
               <div v-if="parsed.budget" class="text-[10px] text-gray-500">冲突{{ parsed.budget.conflict_intensity }}/情感{{ parsed.budget.emotion_intensity }}/节奏{{ parsed.budget.tempo }}(软目标)</div>
-              <div v-if="parsed.thread_hints?.length" class="text-[10px] text-amber-500/80">伏笔建议:{{ parsed.thread_hints.map(t => t.description).join(' | ') }}</div>
+              <div v-if="parsed.thread_hints?.length" class="text-[10px] text-amber-500/80">伏笔建议:{{ parsed.thread_hints.map(hintLabel).join(' | ') }}</div>
             </div>
           </div>
 
@@ -92,7 +92,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
-import { api } from '../../api'
+import { api, unwrap } from '../../api'
 
 const projects = ref<any[]>([])
 const selectedProjectId = ref('')
@@ -106,6 +106,8 @@ const parsed = ref<any>(null)
 const auditReport = ref<any>(null)
 const showNewVol = ref(false)
 const newVol = ref({ title: '' })
+// 模板不能使用 TS 注解，把需类型化的箭头收敛为 script 函数供模板调用。
+const hintLabel = (t: any) => t.description
 
 async function loadProjects() {
   try {
@@ -118,7 +120,7 @@ async function loadVolumes() {
   if (!selectedProjectId.value) return
   try {
     const res = await api.narrative.listVolumes(selectedProjectId.value)
-    volumes.value = (res.data?.volumes) || []
+    volumes.value = unwrap<any>(res)?.volumes || []
   } catch { volumes.value = [] }
   selectedVol.value = ''
   chapters.value = []
@@ -128,7 +130,7 @@ async function selectVolume(vid: string) {
   selectedVol.value = vid
   try {
     const res = await api.narrative.listChapters(selectedProjectId.value, vid)
-    chapters.value = (res.data?.chapters) || []
+    chapters.value = unwrap<any>(res)?.chapters || []
   } catch { chapters.value = [] }
   selectedCh.value = ''
   currentChapter.value = null

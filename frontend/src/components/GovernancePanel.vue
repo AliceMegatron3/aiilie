@@ -49,7 +49,7 @@
         </div>
         <select v-model="arcForm.pattern_id" class="w-full rounded border border-[#2a2a30] bg-[#121212] px-2 py-1 text-xs text-zinc-200">
           <option value="" disabled>选择弧线模式</option>
-          <option v-for="a in arcs" :key="a.pattern_id" :value="a.pattern_id">{{ a.name }}({{ a.stages.map(s => s.name).join('→') }})</option>
+          <option v-for="a in arcs" :key="a.pattern_id" :value="a.pattern_id">{{ a.name }}({{ arcLabel(a) }})</option>
         </select>
         <div class="flex gap-2">
           <button class="rounded bg-[#2a2a30] px-3 py-1 text-xs text-zinc-200 hover:bg-[#3a3a40]" @click="previewArc">预览预算序列</button>
@@ -57,11 +57,11 @@
         </div>
         <div v-if="arcPreview" class="rounded border border-[#2a2a30] bg-[#121212] p-2 text-[11px] text-zinc-400">
           预览「{{ arcPreview.name }}」共 {{ arcPreview.n_chapters }} 章(套用会覆盖这些章的预算与弧线绑定,不动已确认拍纲):
-          <div class="mt-1 text-zinc-300">{{ arcPreview.sequence.map(s => `${s.index}:${s.stage}/${s.conflict_intensity}`).join('  ') }}</div>
+          <div class="mt-1 text-zinc-300">{{ arcPreview.sequence.map(seqLabel).join('  ') }}</div>
         </div>
         <div v-if="arcResult" class="rounded border border-emerald-800/40 bg-emerald-950/20 p-2 text-[11px] text-emerald-200/90">
           已派生 {{ arcResult.applied }} 章 · 阶段:
-          <span>{{ arcResult.chapters.map(c => `${c.chapter_number}章:${c.arc_stage}`).join(', ') }}</span>
+          <span>{{ arcResult.chapters.map(chapterLabel).join(', ') }}</span>
         </div>
         <div class="border-t border-[#2a2a30] pt-3">
           <button class="rounded bg-[#2a2a30] px-3 py-1 text-xs text-zinc-200 hover:bg-[#3a3a40]" @click="loadVariance">查弧线偏差(配方 vs 实际)</button>
@@ -154,7 +154,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { api } from '../api'
+import { api, unwrap } from '../api'
 
 defineProps<{ open: boolean }>()
 defineEmits(['close'])
@@ -185,6 +185,10 @@ const deltaForm = ref({ event_id: '', delta: 0, reason: '' })
 const splitList = (v: string) => String(v || '').split(/[,，]/).map(s => s.trim()).filter(Boolean)
 
 const fmt = (v: any) => (v == null ? '—' : `${Math.round(v * 100)}%`)
+// 模板不能使用 TS 注解，故把内联箭头逻辑收敛到类型化的 script 函数，供模板调用。
+const arcLabel = (a: any) => (a?.stages || []).map((s: any) => s.name).join('→')
+const seqLabel = (s: any) => `${s.index}:${s.stage}/${s.conflict_intensity}`
+const chapterLabel = (c: any) => `${c.chapter_number}章:${c.arc_stage}`
 const statusClass = (s: string) =>
   s === 'ACTIVE' ? 'bg-emerald-900/60 text-emerald-300'
   : s === 'GRAY' ? 'bg-amber-900/60 text-amber-300'
@@ -194,7 +198,7 @@ const statusClass = (s: string) =>
 async function loadPlugins() {
   try {
     const res = await api.governance.plugins()
-    plugins.value = res.data?.plugins ?? []
+    plugins.value = unwrap<any>(res)?.plugins ?? []
   } catch { /* 面板静默 */ }
 }
 async function setStatus(p: any, status: string, gray = 0) {
@@ -208,7 +212,7 @@ async function setStatus(p: any, status: string, gray = 0) {
 async function loadArcs() {
   try {
     const res = await api.governance.arcs()
-    arcs.value = res.data?.arcs ?? []
+    arcs.value = unwrap<any>(res)?.arcs ?? []
   } catch { /* 面板静默 */ }
 }
 async function previewArc() {
@@ -216,7 +220,7 @@ async function previewArc() {
   if (!pattern_id) return alert('请选择弧线模式')
   try {
     const res = await api.governance.previewArc(pattern_id, n_chapters)
-    arcPreview.value = res.data
+    arcPreview.value = unwrap<any>(res)
     arcResult.value = null
   } catch (e: any) {
     alert(e?.response?.data?.detail ?? '预览失败')
@@ -228,7 +232,7 @@ async function applyArc() {
   if (!arcPreview.value) return alert('请先预览预算序列再确认套用')
   try {
     const res = await api.governance.applyArc(project_id, volume_id, { pattern_id, n_chapters })
-    arcResult.value = res.data
+    arcResult.value = unwrap<any>(res)
     arcPreview.value = null
   } catch (e: any) {
     alert(e?.response?.data?.detail ?? '套用失败')
@@ -239,8 +243,8 @@ async function loadVariance() {
   if (!project_id) return alert('请填写项目ID')
   try {
     const res = await api.governance.arcVariance(project_id, volume_id || undefined)
-    variance.value = res.data
-    offTargetItems.value = (res.data?.items ?? []).filter((i: any) => i.flag !== 'on_target')
+    variance.value = unwrap<any>(res)
+    offTargetItems.value = (unwrap<any>(res)?.items ?? []).filter((i: any) => i.flag !== 'on_target')
   } catch (e: any) {
     variance.value = null
     offTargetItems.value = []
@@ -250,11 +254,11 @@ async function loadRelations() {
   if (!ensForm.value.project_id) return
   try {
     const res = await api.governance.ensembleRelations(ensForm.value.project_id)
-    relations.value = res.data?.relationships ?? []
+    relations.value = unwrap<any>(res)?.relationships ?? []
   } catch { relations.value = [] }
   try {
     const res = await api.governance.ensembleTracks(ensForm.value.project_id)
-    tracks.value = res.data?.tracks ?? []
+    tracks.value = unwrap<any>(res)?.tracks ?? []
   } catch { tracks.value = [] }
 }
 async function saveTrack() {
@@ -312,7 +316,7 @@ async function closeEvent() {
   if (!project_id || !event_id) return alert('请填写项目与事件ID')
   try {
     const res = await api.governance.ensembleCloseEvent(project_id, event_id)
-    reminders.value = res.data?.reminders ?? []
+    reminders.value = unwrap<any>(res)?.reminders ?? []
     await loadRelations()
   } catch { reminders.value = [] }
 }

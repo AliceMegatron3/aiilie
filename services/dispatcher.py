@@ -219,6 +219,7 @@ class ModelDispatcher:
         override_mode: Literal["rapid", "think"] | None = None,
         session_id: str | None = None,
         card_filters: dict[str, Any] | None = None,
+        model_override: str | None = None,
     ) -> str:
         """
         统一模型调度入口。
@@ -257,7 +258,8 @@ class ModelDispatcher:
                 sess = None
 
         result = await self._dispatch_inner(
-            context_prompt, project_id, override_mode, card_filters=card_filters
+            context_prompt, project_id, override_mode, card_filters=card_filters,
+            model_override=model_override,
         )
 
         if sess is not None:
@@ -277,6 +279,7 @@ class ModelDispatcher:
         project_id: str | None = None,
         override_mode: Literal["rapid", "think"] | None = None,
         card_filters: dict[str, Any] | None = None,
+        model_override: str | None = None,
     ) -> str:
         """调度核心执行体（不含会话池逻辑，由 dispatch 包装）。"""
         async with self._semaphore:
@@ -315,6 +318,7 @@ class ModelDispatcher:
             }
             # todo: 后续可在此处通过 OptimizationApplier 篡改 dispatch_params
 
+            # model_override：前端指定模型，传递给底层调用，避免实例状态污染。
             if dispatch_params["mode"] == "think":
                 logger.info("调度模式 [Think]: 优先尝试云端大模型分析...")
                 try:
@@ -322,6 +326,7 @@ class ModelDispatcher:
                         final_prompt,
                         temperature=dispatch_params["temperature"],
                         max_tokens=dispatch_params["max_tokens"],
+                        model=model_override,
                     )
                 except Exception as e:
                     category, reason = classify_model_error(e)
@@ -330,7 +335,7 @@ class ModelDispatcher:
                         category.value, reason, e,
                     )
                     try:
-                        return await self._call_local_model(final_prompt, temperature=0.7, max_tokens=1024)
+                        return await self._call_local_model(final_prompt, temperature=0.7, max_tokens=1024, model=model_override)
                     except Exception as le:
                         logger.error("本地模型也响应失败: %s", le)
                         raise RuntimeError("【系统故障】当前无网络连接且未检测到本地大模型，执行已被阻断。")
@@ -341,6 +346,7 @@ class ModelDispatcher:
                         final_prompt,
                         temperature=dispatch_params["temperature"],
                         max_tokens=dispatch_params["max_tokens"],
+                        model=model_override,
                     )
                 except Exception as e:
                     category, reason = classify_model_error(e)
@@ -349,7 +355,7 @@ class ModelDispatcher:
                         category.value, reason, e,
                     )
                     try:
-                        return await self._call_cloud_model(final_prompt, temperature=0.5, max_tokens=1024)
+                        return await self._call_cloud_model(final_prompt, temperature=0.5, max_tokens=1024, model=model_override)
                     except Exception as ce:
                         logger.error("云端也响应失败: %s", ce)
                         raise RuntimeError("【系统故障】当前无网络连接且未检测到本地大模型，执行已被阻断。")
@@ -381,7 +387,7 @@ class ModelDispatcher:
 
         return base_limit
 
-    async def _call_cloud_model(self, prompt: str, temperature: float, max_tokens: int) -> str:
+    async def _call_cloud_model(self, prompt: str, temperature: float, max_tokens: int, model: str | None = None) -> str:
         """调用云端 OpenAI 协议接口，设置强制超时避免阻塞。
 
         【0-2 修复】统一接入熔断器与错误分类：调用前 check，成功后 record_success，
@@ -405,7 +411,7 @@ class ModelDispatcher:
                 try:
                     response = await asyncio.wait_for(
                         self.cloud_client.chat.completions.create(
-                            model=self.cloud_model,
+                            model=model or self.cloud_model,
                             messages=[{"role": "user", "content": prompt}],
                             temperature=temperature,
                             max_tokens=max_tokens
@@ -448,7 +454,7 @@ class ModelDispatcher:
                     "Content-Type": "application/json"
                 }
                 payload = {
-                    "model": self.cloud_model,
+                    "model": model or self.cloud_model,
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": temperature,
                     "max_tokens": max_tokens
@@ -494,21 +500,21 @@ class ModelDispatcher:
             model_circuit_breaker.record_failure()
             raise
 
-    async def _call_local_model(self, prompt: str, temperature: float, max_tokens: int) -> str:
+    async def _call_local_model(self, prompt: str, temperature: float, max_tokens: int, model: str | None = None) -> str:
         """调用本地 Ollama 接口，适用于断网与重度隐私模式。
 
         【0-2 修复】统一接入熔断器：本地模型调用结果同样计入熔断统计，
         与云端调用共享同一模型熔断器，避免降级路径逃逸熔断计数。
         """
         self._load_config()
-        if not self.local_url or not self.local_model:
+        if not self.local_url or not (model or self.local_model):
             raise AppError(
                 "未配置本地 Ollama 地址或模型名称",
                 error_code="OLLAMA_CONFIGURATION_MISSING",
                 status_code=503,
             )
         payload = {
-            "model": self.local_model,
+            "model": model or self.local_model,
             "prompt": prompt,
             "stream": False,
             "options": {

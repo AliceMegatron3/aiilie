@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { api } from '../api'
+import { api, unwrapData } from '../api'
 
 interface ProjectInput {
   id?: string
@@ -62,8 +62,8 @@ export const useProjectStore = defineStore('project', {
       this.error = null
       try {
         const res = await api.projects.list()
-        // 后端返回 list[AuthorProject]，字段为 project_id/project_name
-        this.projects = res.data || []
+        // 统一经 unwrapData 解包（兼容后端 envelope 与裸 DTO 两种形态）
+        this.projects = unwrapData<Array<AuthorProject & { project_id?: string }>>(res) || []
         this.loadedAt = Date.now()
         // 自动选中第一个项目（如果当前未选中）
         if (!this.currentProjectId && this.projects.length > 0) {
@@ -93,8 +93,9 @@ export const useProjectStore = defineStore('project', {
           updated_at: projectData.updated_at,
         }
         const res = await api.projects.create(payload)
-        this.projects.push(res.data)
-        return res.data
+        const created = unwrapData<any>(res)
+        this.projects.push(created)
+        return created
       } catch (e) {
         const error = e as { response?: { data?: { detail?: string } } }
         this.error = error.response?.data?.detail || '创建项目失败'
@@ -112,6 +113,23 @@ export const useProjectStore = defineStore('project', {
         }
       } catch (e) {
         console.error('[ProjectStore] switchMode error:', e)
+        throw e
+      }
+    },
+
+    async addDocument(project_id: string, doc: { doc_name: string; content: string; doc_type?: string; parent_folder_id?: string }) {
+      try {
+        // 阶段A：ProjectDoc.project_id 为必填，正文字段为 raw_content（原 content 会被丢弃）
+        const payload: any = {
+          project_id,
+          doc_name: doc.doc_name,
+          raw_content: doc.content,
+          status: 'DRAFT',
+        }
+        const res = await api.projects.addDocument(project_id, payload)
+        return unwrapData<any>(res)
+      } catch (e) {
+        console.error('[ProjectStore] addDocument error:', e)
         throw e
       }
     },

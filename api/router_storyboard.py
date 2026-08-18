@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from core.config_manager import config_manager
+from core.feature_status import feature_disabled
 from api.deps import verify_token
 from services.storyboard import StoryboardPromptBuilder, StoryboardService
 
@@ -74,6 +75,9 @@ async def generate_storyboard_image(
     svc: StoryboardService = Depends(get_storyboard_service),
 ) -> dict[str, Any]:
     _require_feature()
+    # 阶段C：未接入真实生图 provider 时，不提交伪造任务，直接返回结构化 DISABLED。
+    if not svc.image_generator_available:
+        return feature_disabled("storyboard.image_generation", "provider_not_configured")
     text_range = (req.start, req.end) if req.start is not None and req.end is not None else None
     try:
         result = await svc.submit_generate_task(

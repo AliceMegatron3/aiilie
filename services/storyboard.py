@@ -89,6 +89,11 @@ class StoryboardService:
         self._image_generator = image_generator
         self._prompt_builder = StoryboardPromptBuilder()
 
+    @property
+    def image_generator_available(self) -> bool:
+        """判断是否已注入真实生图 provider（阶段C：未注入时结构化 DISABLED）。"""
+        return self._image_generator is not None
+
     # ── 目录与锚点索引 ──────────────────────────────────────────
 
     def _storyboard_dir(self, project_id: str) -> Path:
@@ -184,20 +189,26 @@ class StoryboardService:
         return {"task_id": task_id, "anchor_id": anchor_id, "prompt": prompt}
 
     async def process_generate(self, project_id: str, anchor_id: str, prompt: str) -> str:
-        """执行生图并保存至项目 assets/storyboard 目录，回填锚点。返回图片文件名。"""
+        """执行生图并保存至项目 assets/storyboard 目录，回填锚点。返回图片文件名。
+
+        阶段D：未接入真实 provider 时明确失败（DEGRADED），不再伪造 SVG 占位成功。
+        只有注入真实生图连接器后才产生成功图片。
+        """
         try:
-            if self._image_generator is not None:
-                image_bytes = await asyncio.to_thread(self._image_generator, prompt)
-                if isinstance(image_bytes, str):
-                    image_bytes = image_bytes.encode("utf-8")
-                if not isinstance(image_bytes, (bytes, bytearray)):
-                    raise TypeError("生图回调须返回 bytes/str")
-                image_bytes = bytes(image_bytes)
-            else:
-                image_bytes = self._render_placeholder_svg(prompt)
+            if self._image_generator is None:
+                raise NotImplementedError("Storyboard 生图未接入真实 provider（DEGRADED）")
+            image_bytes = await asyncio.to_thread(self._image_generator, prompt)
+            if isinstance(image_bytes, str):
+                image_bytes = image_bytes.encode("utf-8")
+            if not isinstance(image_bytes, (bytes, bytearray)):
+                raise TypeError("生图回调须返回 bytes/str")
+            image_bytes = bytes(image_bytes)
+        except NotImplementedError:
+            raise
         except Exception as exc:
-            logger.warning("[Storyboard] 生图失败，使用占位图: %s", exc)
-            image_bytes = self._render_placeholder_svg(prompt)
+            # 真实生成器存在但执行失败：同样以失败告终，禁止回退占位伪造成功。
+            logger.warning("[Storyboard] 生图失败: %s", exc)
+            raise
 
         is_svg = image_bytes[:4] == b"<svg"
         file_name = (
@@ -217,33 +228,6 @@ class StoryboardService:
         await self._rewrite_anchors(project_id, anchors)
         logger.info("[Storyboard] 分镜图片已保存: %s", target)
         return file_name
-
-    @staticmethod
-    def _render_placeholder_svg(prompt: str) -> bytes:
-        """生成风格化 SVG 占位图（真实生成器未注入时的保底，保证链路可用）。"""
-        import html
-
-        safe_prompt = html.escape(prompt[:120])
-        lines = []
-        for i in range(0, len(safe_prompt), 42):
-            lines.append(safe_prompt[i : i + 42])
-        text_elems = "".join(
-            f'<tspan x="40" dy="{28 if i else 0}">{line}</tspan>'
-            for i, line in enumerate(lines)
-        )
-        svg = (
-            '<svg xmlns="http://www.w3.org/2000/svg" width="768" height="432">'
-            '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">'
-            '<stop offset="0" stop-color="#1e293b"/><stop offset="1" stop-color="#4c1d95"/>'
-            "</linearGradient></defs>"
-            '<rect width="768" height="432" fill="url(#g)"/>'
-            '<text x="40" y="70" font-family="sans-serif" font-size="20" fill="#e2e8f0">'
-            f'{text_elems}</text>'
-            '<text x="40" y="400" font-family="sans-serif" font-size="14" fill="#94a3b8">'
-            "Storyboard placeholder - 接入生图连接器后自动替换"
-            "</text></svg>"
-        )
-        return svg.encode("utf-8")
 
     # ── 锚点双向绑定 ────────────────────────────────────────────
 

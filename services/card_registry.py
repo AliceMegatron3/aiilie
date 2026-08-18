@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 class CardTypeDefinition(BaseModel):
     """卡片类型的元数据定义。"""
     subtype: str = Field(..., description="卡片子类型标识，如 world_view")
-    card_category: str = Field(..., description="基类归属：'info' 或 'data'")
+    card_category: str = Field(..., description="基类归属：'info'、'data' 或 'extend'（扩展卡）")
     processor_path: str | None = Field(default=None, description="处理器类的完整导入路径")
     description: str = Field(default="", description="该类型卡片的描述")
 
@@ -53,7 +53,9 @@ class CardTypeRegistry:
             ("logic_character_arc", "info", "角色弧光发散卡 (发散思维)"),
             ("logic_combat_tension", "info", "战力冲突拉扯卡 (发散思维)"),
             ("logic_plot_twist", "info", "剧情悬念反转卡 (发散思维)"),
-            ("logic_general_divergence", "info", "通用发散思维结晶 (发散思维)")
+            ("logic_general_divergence", "info", "通用发散思维结晶 (发散思维)"),
+            # 书库资料扩展卡：插件可注册，纯为书库卡片资料延申 + 临时存放
+            ("ext_library_notes", "extend", "书库资料扩展卡 (资料延申/临时存放)")
         ]
         for subtype, category, desc in default_types:
             if not self.is_valid_type(subtype):
@@ -115,8 +117,8 @@ class CardTypeRegistry:
     def _register_internal(self, definition: CardTypeDefinition, processor: Callable | None = None) -> None:
         """内部实际执行注册的逻辑。"""
         subtype = definition.subtype
-        if definition.card_category not in ("info", "data"):
-            raise ValueError(f"无效的 card_category: {definition.card_category}，必须为 'info' 或 'data'")
+        if definition.card_category not in ("info", "data", "extend"):
+            raise ValueError(f"无效的 card_category: {definition.card_category}，必须为 'info'、'data' 或 'extend'")
 
         self._definitions[subtype] = definition
         

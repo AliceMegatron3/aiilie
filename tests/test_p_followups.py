@@ -159,8 +159,9 @@ def test_author_signal_retention_and_join(tmp_path):
 
 def test_followup_endpoints_mounted():
     from api.api_router import api_router
+    from tests.conftest import flatten_api_router
 
-    paths = {r.path for r in api_router.routes}
+    paths = {r.path for r in flatten_api_router(api_router)}
     assert any(p.endswith("/author-signal") for p in paths)
     assert any(p.endswith("/arcs") and "narrative" in p for p in paths)
     assert any("apply-arc" in p for p in paths)

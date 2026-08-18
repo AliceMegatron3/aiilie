@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from api.deps import get_db, get_indexer, verify_token
+from core.response import ok
 from models.lockfield import DivergenceRecord, LockFieldConfig
 from services.lockfield import LockFieldService
 
@@ -27,7 +28,7 @@ def _service(request: Request, db=Depends(get_db), indexer=Depends(get_indexer))
 async def get_lockfield(project_id: str, svc: LockFieldService = Depends(_service)):
     await svc.initialize()
     config = await svc.get_field(project_id)
-    return {"lockfield": config.model_dump() if config else None}
+    return ok({"lockfield": config.model_dump() if config else None})
 
 
 @router.post("/lockfield/projects/{project_id}")
@@ -39,7 +40,7 @@ async def save_lockfield(
         raise HTTPException(status_code=422, detail="project_id 与路径不一致")
     config.project_id = project_id
     saved = await svc.save_field(config)
-    return {"lockfield": saved.model_dump()}
+    return ok({"lockfield": saved.model_dump()})
 
 
 @router.get("/lockfield/projects/{project_id}/must-set")
@@ -53,7 +54,7 @@ async def get_must_set(
     if config is None:
         raise HTTPException(status_code=404, detail="该项目尚未建立锁定场")
     must_set = await svc.materialize_must_set(config, force_rebuild=force_rebuild)
-    return {
+    return ok({
         "must_set": {
             "field_id": must_set.field_id,
             "version": must_set.version,
@@ -62,7 +63,7 @@ async def get_must_set(
             "card_ids": must_set.card_ids,
             "built_at": must_set.built_at,
         }
-    }
+    })
 
 
 @router.get("/lockfield/projects/{project_id}/versions")
@@ -70,9 +71,9 @@ async def list_versions(project_id: str, svc: LockFieldService = Depends(_servic
     await svc.initialize()
     config = await svc.get_field(project_id)
     if config is None:
-        return {"versions": []}
+        return ok({"versions": []})
     versions = await svc.list_versions(config.field_id)
-    return {"versions": [v.model_dump() for v in versions]}
+    return ok({"versions": [v.model_dump() for v in versions]})
 
 
 @router.post("/lockfield/projects/{project_id}/rollback")
@@ -82,7 +83,7 @@ async def rollback(project_id: str, target_version: int, svc: LockFieldService =
     if config is None:
         raise HTTPException(status_code=404, detail="该项目尚未建立锁定场")
     rolled = await svc.rollback_to_version(config.field_id, target_version)
-    return {"lockfield": rolled.model_dump() if rolled else None}
+    return ok({"lockfield": rolled.model_dump() if rolled else None})
 
 
 @router.post("/lockfield/divergences")
@@ -92,7 +93,7 @@ async def propose_divergence(
     """登记偏离建议(PENDING,待作者确认)。"""
     await svc.initialize()
     saved = await svc.propose_divergence(record)
-    return {"divergence": saved.model_dump()}
+    return ok({"divergence": saved.model_dump()})
 
 
 class DivergenceActionRequest(BaseModel):
@@ -113,7 +114,7 @@ async def divergence_action(
         raise HTTPException(status_code=422, detail="action 仅支持 confirm/retract")
     if record is None:
         raise HTTPException(status_code=404, detail="偏离记录不存在")
-    return {"divergence": record.model_dump()}
+    return ok({"divergence": record.model_dump()})
 
 
 @router.get("/lockfield/projects/{project_id}/divergences")
@@ -126,4 +127,4 @@ async def list_divergences(
 
     status_enum = DivergenceStatus(status) if status else None
     records = await svc.list_divergences(project_id, status_enum)
-    return {"divergences": [r.model_dump() for r in records]}
+    return ok({"divergences": [r.model_dump() for r in records]})

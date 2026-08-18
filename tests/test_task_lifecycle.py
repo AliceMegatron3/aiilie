@@ -88,6 +88,30 @@ async def _make_batch1_manager(db: DatabaseManager, tmp_path) -> Batch1TaskManag
 
 
 @pytest.mark.asyncio
+async def test_core_worker_does_not_overwrite_running_cancellation(tmp_path):
+    db = DatabaseManager(db_path=tmp_path / "core-cancel-race.db")
+    await db.initialize()
+    manager = CoreTaskManager(db)
+    task = BasePipelineTask(task_id="cancel-during-handler")
+    try:
+        await manager.submit_task(task)
+
+        async def handler(active: BasePipelineTask) -> None:
+            assert await manager.cancel_task(active.task_id) is True
+
+        await manager.start_workers(handler, concurrency=1)
+        for _ in range(50):
+            row = await db.get_task(task.task_id)
+            if row and row["status"] == "CANCELLED":
+                break
+            await asyncio.sleep(0.01)
+        await manager.stop_workers()
+        assert (await db.get_task(task.task_id))["status"] == "CANCELLED"
+    finally:
+        await db.close()
+
+
+@pytest.mark.asyncio
 async def test_batch1_idempotency_and_cancel_do_not_duplicate_work(tmp_path):
     db = DatabaseManager(db_path=tmp_path / "batch1-lifecycle.db")
     await db.initialize()
@@ -103,5 +127,37 @@ async def test_batch1_idempotency_and_cancel_do_not_duplicate_work(tmp_path):
         assert await manager.process_next() is not None
         assert (await db.get_task(first.task_id))["status"] == TaskStatus.CANCELLED.value
         assert await manager.cancel_task(first.task_id) is False
+    finally:
+        await db.close()
+
+
+@pytest.mark.asyncio
+async def test_core_worker_failed_on_handler_error_not_completed(tmp_path):
+    """Batch 3：任务是 COMPLETED 的必要条件之一 = handler 真实执行成功。
+    缺失/抛错 handler → FAILED，绝不静默吞掉并伪装 COMPLETED。"""
+    db = DatabaseManager(db_path=tmp_path / "core-handler-fail.db")
+    await db.initialize()
+    manager = CoreTaskManager(db)
+    good = BasePipelineTask(task_id="ok-task")
+    bad = BasePipelineTask(task_id="bad-task")
+    try:
+        await manager.submit_task(good)
+        await manager.submit_task(bad)
+
+        async def handler(task: BasePipelineTask) -> None:
+            if task.task_id == "bad-task":
+                raise RuntimeError("no real handler / empty input")
+            # code_execution/learning 等真实 handler 仅在成功返回后才会被记为 COMPLETED
+
+        await manager.start_workers(handler, concurrency=2)
+        for _ in range(100):
+            ok_row = await db.get_task("ok-task")
+            bad_row = await db.get_task("bad-task")
+            if ok_row and ok_row["status"] == "COMPLETED" and bad_row and bad_row["status"] == "FAILED":
+                break
+            await asyncio.sleep(0.01)
+        await manager.stop_workers()
+        assert (await db.get_task("ok-task"))["status"] == "COMPLETED"
+        assert (await db.get_task("bad-task"))["status"] == "FAILED"
     finally:
         await db.close()

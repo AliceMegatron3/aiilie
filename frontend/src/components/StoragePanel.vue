@@ -97,7 +97,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { api } from '../api'
+import { api, unwrap } from '../api'
 import { useVisibilityPolling } from '../composables/useVisibilityPolling'
 
 const stats = ref({ disk_free_gb: 0, disk_total_gb: 0, disk_percent: 0, directory_usage_mb: {} })
@@ -128,7 +128,7 @@ const checkWaterLevel = () => {
 const fetchStats = async () => {
   try {
     const res = await api.system.resourceStats()
-    stats.value = res.data.data
+    stats.value = unwrap<any>(res)
     checkWaterLevel()
   } catch (error) {
     console.error('无法获取系统状态', error)
@@ -140,7 +140,7 @@ const pollGC = async (taskId) => {
   gcPollTimer = setInterval(async () => {
     try {
       const res = await api.system.gcReport(taskId)
-      gcReport.value = res.data.data
+      gcReport.value = unwrap<any>(res)
       if (['COMPLETED', 'FAILED'].includes(gcReport.value.status)) {
         clearInterval(gcPollTimer)
         isCleaning.value = false
@@ -158,7 +158,7 @@ const triggerGC = async () => {
   gcReport.value = null
   try {
     const res = await api.system.triggerGC()
-    const taskId = res.data.data?.task_id
+    const taskId = unwrap<any>(res)?.task_id
     if (taskId) {
       pollGC(taskId)
     } else {

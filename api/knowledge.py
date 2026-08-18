@@ -75,7 +75,9 @@ async def knowledge_complete(
     try:
         content = await complete_via_llm(dispatcher, req.topic, req.description)
     except ValueError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+        logger.warning("知识补全失败: %s", exc)
+        from core.errors import http_error
+        raise http_error(502, "KNOWLEDGE_COMPLETION_FAILED")
     card_id = await create_completion_card(
         indexer, req.project_id, req.topic, content, source_tag="llm_completion"
     )

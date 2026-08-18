@@ -9,6 +9,24 @@
 
       <div class="whitespace-pre-wrap leading-relaxed">{{ msg.content }}</div>
 
+      <!-- 量化进度条 -->
+      <div v-if="msg.role === 'ai' && msg.quantize_progress" class="mt-3 p-3 bg-[#18181b] border border-emerald-900/50 rounded-lg text-xs text-gray-400">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-emerald-400 flex items-center gap-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400" :class="msg.quantize_progress.percent < 100 ? 'animate-pulse' : ''"></span>
+            量化进度 · {{ msg.quantize_progress.round_label || '' }}
+          </span>
+          <span class="text-emerald-300 font-mono">{{ msg.quantize_progress.percent }}%</span>
+        </div>
+        <div class="h-2 w-full bg-[#2a2a30] rounded-full overflow-hidden">
+          <div
+            class="h-full bg-emerald-400 transition-all duration-500 ease-out rounded-full"
+            :style="{ width: `${msg.quantize_progress.percent}%` }"
+          ></div>
+        </div>
+        <div class="text-[10px] text-gray-600 mt-1">分段 {{ msg.quantize_progress.completed }}/{{ msg.quantize_progress.total }} · 本段 {{ msg.quantize_progress.cards_in_seg }} 张卡片</div>
+      </div>
+
       <!-- 深度思考进度 (WebSocket 推送) -->
       <div v-if="msg.role === 'ai' && msg.thinking_progress" class="mt-3 p-3 bg-[#18181b] border border-gray-700/50 rounded-lg text-xs text-gray-400 font-mono">
         <div class="text-purple-500 mb-2 flex items-center space-x-1">

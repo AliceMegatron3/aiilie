@@ -72,7 +72,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
-import { api } from '../../api'
+import { api, unwrap } from '../../api'
 
 const projects = ref<any[]>([])
 const projectId = ref('')
@@ -95,7 +95,7 @@ async function loadConfig() {
   if (!projectId.value) return
   try {
     const res = await api.lockfield.get(projectId.value)
-    const lf = res.data?.lockfield
+    const lf = unwrap<any>(res)?.lockfield
     if (lf) {
       config.value = lf
       lockedLibsText.value = (lf.locked_library_ids || []).join(',')
@@ -122,14 +122,14 @@ async function saveConfig() {
 async function loadMustSet() {
   try {
     const res = await api.lockfield.mustSet(projectId.value)
-    mustSet.value = res.data?.must_set
+    mustSet.value = unwrap<any>(res)?.must_set
   } catch { mustSet.value = null }
 }
 
 async function loadVersions() {
   try {
     const res = await api.lockfield.versions(projectId.value)
-    versions.value = res.data?.versions || []
+    versions.value = unwrap<any>(res)?.versions || []
   } catch { versions.value = [] }
 }
 
@@ -145,7 +145,7 @@ async function rollback(target_version: number) {
 async function loadDivergences() {
   try {
     const res = await api.lockfield.listDivergences(projectId.value)
-    divergences.value = res.data?.divergences || []
+    divergences.value = unwrap<any>(res)?.divergences || []
   } catch { divergences.value = [] }
 }
 

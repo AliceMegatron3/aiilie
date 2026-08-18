@@ -95,10 +95,27 @@ def get_workspace_dir() -> Path:
 def get_ai_index_dir() -> Path:
     """
     获取智能体专用的索引和缓存目录（位于工作区下的隐藏目录 .ai_index）。
+
+    注意：该目录是 workspace 暂存/辅助目录，不是权威库索引目录；
+    权威活动索引库见 get_library_index_dir()。
     """
     ai_index = get_workspace_dir() / ".ai_index"
     ai_index.mkdir(parents=True, exist_ok=True)
     return ai_index
+
+def get_library_index_dir() -> Path:
+    """
+    获取权威书库索引目录（真实活动索引库所在地）。
+
+    真实索引库 library_index.db 与 tasks.db 同位于 AppData data 目录
+    （%APPDATA%/No0_AI_V4/data/），因此直接复用 get_app_data_dir()。
+    运行时唯一的活动索引库目录是这里；workspace 下的 .ai_index 仅为
+    暂存/辅助目录，不再是权威索引库。
+    自动创建目录（含中间层）。
+    """
+    data_dir = get_app_data_dir()
+    data_dir.mkdir(parents=True, exist_ok=True)
+    return data_dir
 def get_resource_path(relative_path: str) -> Path:
     """
     获取静态资源的绝对路径。

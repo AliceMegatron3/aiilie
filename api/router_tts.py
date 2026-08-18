@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from core.config_manager import config_manager
+from core.feature_status import feature_disabled
 from api.deps import verify_token
 from services.tts import DialogueSegmenter, tts_dispatcher
 
@@ -60,6 +61,11 @@ async def segment_dialogue(req: SegmentRequest) -> dict[str, Any]:
 @router.post("/tts/synthesize", summary="合成角色语音")
 async def synthesize_tts(req: SynthesizeRequest) -> dict[str, Any]:
     _require_feature()
+    engine = req.engine or config_manager.get("tts.engine", "vits_local") or "vits_local"
+    # 阶段C：未接入真实 provider 时提前返回结构化 DISABLED，而非失败才暴露/伪造成功。
+    if not tts_dispatcher.provider_available(engine):
+        reason = "provider_not_configured" if engine != "vits_local" else "provider_unavailable"
+        return feature_disabled("tts.synthesis", reason)
     try:
         result = await tts_dispatcher.synthesize(req.text, req.voice, req.engine)
         return {
@@ -70,9 +76,12 @@ async def synthesize_tts(req: SynthesizeRequest) -> dict[str, Any]:
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError:
+        return feature_disabled("tts.synthesis", "provider_unavailable")
     except Exception as e:
         logger.error("TTS 合成失败: %s", e)
-        raise HTTPException(status_code=500, detail=f"TTS 合成失败: {e}")
+        from core.errors import http_error
+        raise http_error(500, "TTS_SYNTHESIZE_FAILED")
 
 
 @router.get("/tts/audio/{file_name}", summary="读取合成音频文件")

@@ -26,8 +26,16 @@ function createWindow() {
     }
   });
 
-  // Load the built vite app
-  mainWindow.loadFile(path.join(__dirname, 'dist', 'index.html'));
+  const devUrl = process.env.NO0_ELECTRON_DEV_URL;
+  if (!app.isPackaged && devUrl) {
+    log.info(`Loading Electron development URL: ${devUrl}`);
+    mainWindow.loadURL(devUrl).catch((error) => {
+      log.error('Failed to load Electron development URL', error);
+    });
+  } else {
+    log.info('Loading packaged frontend from dist/index.html');
+    mainWindow.loadFile(path.join(__dirname, 'dist', 'index.html'));
+  }
 }
 
 // 批次3:文件夹选择 IPC——渲染层通过 contextBridge 调 dialog.showOpenDialog

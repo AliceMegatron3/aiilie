@@ -39,6 +39,7 @@ class NovelAgentLearningLoop:
         optimization_applier,
         task_manager=None,
         indexer=None,
+        skill_governance=None,
     ) -> None:
         self.db = db
         self.audit_store = audit_store
@@ -46,6 +47,7 @@ class NovelAgentLearningLoop:
         self.optimization_applier = optimization_applier
         self.task_manager = task_manager
         self.indexer = indexer
+        self.skill_governance = skill_governance
         # 解析配置
         self.min_sample_count = config_manager.get_int("novel_agent.min_sample_count", 5)
         conf = config_manager.get("novel_agent.confidence_threshold", 0.75)
@@ -117,8 +119,22 @@ class NovelAgentLearningLoop:
         # 3. 沉淀创作技能
         try:
             skills = self.skill_extractor.extract_skills(samples)
+            # 反思产物只进入统一治理候选池；旧技能表由 FULL 投影器维护。
+            if self.skill_governance is None:
+                raise RuntimeError("SkillGovernance 未装配")
             for skill in skills:
-                await self.skill_store.save_skill(skill)
+                content = skill.content if isinstance(skill.content, str) else json.dumps(skill.content, ensure_ascii=False, default=str)
+                candidate_id = self.skill_governance.submit_candidate(
+                    skill.name,
+                    content,
+                    confidence=float(getattr(skill, "confidence", 0.0) or 0.0),
+                    source_task="novellearn",
+                    artifact={"novel_agent_skill": skill.model_dump(mode="json")},
+                )
+                try:
+                    self.skill_governance.auto_review(candidate_id)
+                except Exception:
+                    pass
             result["skills_deployed"] = len(skills)
         except Exception as exc:
             logger.exception("[NovelAgentLearningLoop] 技能沉淀失败: %s", exc)
@@ -135,6 +151,11 @@ class NovelAgentLearningLoop:
         for rule_dict in rules:
             rule_id = rule_dict.get("rule_id") or f"rule_{uuid.uuid4().hex[:12]}"
             status = rule_dict.get("status", RULE_STATUS_ACTIVE)
+            confidence = float(rule_dict.get("confidence", 0.0) or 0.0)
+            # Batch 4：低置信度规则绝不直接落地为 active——即便被标记 ACTIVE、
+            # 若 confidence 低于阈值也强制降权进入人工审核（fail-closed，不依赖 extractor 自觉）。
+            if status == RULE_STATUS_ACTIVE and confidence < self.confidence_threshold:
+                status = RULE_STATUS_PENDING_REVIEW
             is_active = 1 if status == RULE_STATUS_ACTIVE else 0
             from datetime import datetime, timezone
             now = datetime.now(timezone.utc).isoformat()
@@ -149,7 +170,7 @@ class NovelAgentLearningLoop:
                         rule_dict.get("scope", "NOVEL_AGENT_SCHEDULE"),
                         json.dumps(rule_dict.get("condition", {}), ensure_ascii=False),
                         json.dumps(rule_dict.get("action", {}), ensure_ascii=False),
-                        float(rule_dict.get("confidence", 0.0)),
+                        confidence,
                         is_active,
                         now,
                     ),
@@ -242,9 +263,10 @@ class NovelAgentLearningLoop:
                 stats = payload.get("effect_stats", {}) or {}
                 effect_score = self.skill_store.compute_effect_score(stats)
                 if skill.get("status") == "ACTIVE" and effect_score < 0.25:
-                    await self.skill_store.toggle_skill(skill["skill_id"], "ARCHIVED")
-                    outcome["skills_archived"] += 1
-                    logger.warning("[NovelAgentLearningLoop] 技能 %s 效果分 %.3f 过低，已归档（可手动恢复）", skill["skill_id"], effect_score)
+                    archived = await self.skill_store.archive_skill(skill["skill_id"])
+                    if archived:
+                        outcome["skills_archived"] += 1
+                        logger.warning("[NovelAgentLearningLoop] 技能 %s 效果分 %.3f 过低，已归档（可手动恢复）", skill["skill_id"], effect_score)
         except Exception as exc:
             logger.exception("[NovelAgentLearningLoop] 技能效果评估失败: %s", exc)
         # ── 基线对比：拒绝未提升的自动启用 ──

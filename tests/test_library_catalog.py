@@ -5,6 +5,7 @@ import pytest
 
 from api.deps import get_global_router, verify_token
 from api.system import get_global_router as get_system_global_router
+from core.config_manager import config_manager
 from models.cards import CardRelation, InfoCard
 from models.library import (
     LibraryCatalog,
@@ -17,7 +18,39 @@ from services.dispatcher import ModelDispatcher
 from services.global_router import GlobalRouter
 from services.indexer import CardIndexer
 from services.priority_queue import PriorityTaskQueue
+from api.library import _filter_cards_by_quadrant
 from main import create_app
+
+
+def test_quadrant_filter_by_utility_and_entropy():
+    """Batch 1：卡片四象限阈值过滤（utility_score / entropy_score 确定性过滤）。"""
+    cards = [
+        {"card_id": "a", "utility_score": 0.9, "entropy_score": 0.5},
+        {"card_id": "b", "utility_score": 0.2, "entropy_score": 0.9},
+        {"card_id": "c", "utility_score": 0.8, "entropy_score": 0.8},
+        {"card_id": "d", "detail": {"utility_score": 0.7, "entropy_score": 0.6}},
+        {"card_id": "e"},  # 无分数 → 视为 0
+    ]
+
+    # 仅 utility 阈值
+    got = _filter_cards_by_quadrant(cards, min_utility=0.8)
+    assert [c["card_id"] for c in got] == ["a", "c"]
+
+    # 仅 entropy 阈值
+    got = _filter_cards_by_quadrant(cards, min_entropy=0.8)
+    assert [c["card_id"] for c in got] == ["b", "c"]
+
+    # 双阈值（四象限交集）
+    got = _filter_cards_by_quadrant(cards, min_utility=0.8, min_entropy=0.6)
+    assert [c["card_id"] for c in got] == ["c"]
+
+    # 兼容 ledger 投影的 detail 包装
+    got = _filter_cards_by_quadrant(cards, min_utility=0.7)
+    assert "d" in [c["card_id"] for c in got]
+
+    # 缺省不过滤
+    got = _filter_cards_by_quadrant(cards)
+    assert len(got) == len(cards)
 
 
 def test_manifest_is_hierarchical_and_retrieval_has_trace(tmp_path):
@@ -74,7 +107,11 @@ def test_manifest_audit_distinguishes_missing_orphaned_and_duplicate_entries(tmp
 
 
 @pytest.mark.asyncio
-async def test_scoped_card_relation_and_filter(tmp_path):
+async def test_scoped_card_relation_and_filter(tmp_path, monkeypatch):
+    # 隔离全局 ledger 灰度：本用例验证 legacy cards/relations 检索语义。
+    ledger_cfg = config_manager._config.setdefault("ledger", {})
+    monkeypatch.setitem(ledger_cfg, "authoritative", False)
+    monkeypatch.setitem(ledger_cfg, "read_mode", "legacy")
     indexer = CardIndexer(index_dir=tmp_path)
     await indexer.initialize()
     try:

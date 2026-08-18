@@ -111,9 +111,12 @@ class DocumentLearningEngine:
         try:
             project_id = feedback.get("project_id") or ""
             doc_id = feedback.get("doc_id") or ""
-            parse_dir = self.project_manager.projects_dir / project_id / "ai_parse"
+            # 阶段B：project_id/doc_id 是用户可控字段，必须 safe_join 防路径遍历。
+            from core.path_resolver import safe_join
+
+            parse_dir = safe_join(self.project_manager.projects_dir, project_id, "ai_parse")
             parse_dir.mkdir(parents=True, exist_ok=True)
-            feedback_file = parse_dir / f"{doc_id}_ooc_feedback.jsonl"
+            feedback_file = safe_join(parse_dir, f"{doc_id}_ooc_feedback.jsonl")
 
             def _append_feedback() -> None:
                 with open(feedback_file, "a", encoding="utf-8") as f:
@@ -223,10 +226,12 @@ class DocumentLearningEngine:
             
             final_result = AIParseResult(**merged_dict)
             
-            # 定位目标落盘路径
-            parse_dir = self.project_manager.projects_dir / project_id / "ai_parse"
+            # 定位目标落盘路径（阶段B：safe_join 防 project_id/doc_id 路径遍历）
+            from core.path_resolver import safe_join
+
+            parse_dir = safe_join(self.project_manager.projects_dir, project_id, "ai_parse")
             parse_dir.mkdir(parents=True, exist_ok=True)
-            output_file = parse_dir / f"{doc_id}_parse.json"
+            output_file = safe_join(parse_dir, f"{doc_id}_parse.json")
             
             output_file.write_text(final_result.model_dump_json(indent=2), encoding="utf-8")
             

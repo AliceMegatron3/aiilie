@@ -59,7 +59,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { toast } from '../utils/toast'
-import { api } from '../api'
+import { api, unwrap } from '../api'
 
 const props = defineProps({
   docId: { type: String, required: true },
@@ -85,8 +85,9 @@ const opMark = (op) => op === 1 ? '+' : op === -1 ? '-' : ''
 async function loadBranches() {
   try {
     const res = await api.branch.list(props.docId)
-    branches.value = res.data?.data || []
-    currentBranchId.value = res.data?.current_branch_id || 'main'
+    const list = unwrap<any>(res) || {}
+    branches.value = list.branches || []
+    currentBranchId.value = list.current_branch_id || 'main'
     if (branches.value.length >= 2) {
       branchA.value = branches.value[0].branch_id
       branchB.value = branches.value[1].branch_id
@@ -95,7 +96,7 @@ async function loadBranches() {
       branchB.value = branches.value[0].branch_id
     }
     const archRes = await api.branch.archived(props.docId)
-    archivedBranches.value = archRes.data?.data || []
+    archivedBranches.value = unwrap<any>(archRes) || []
     await loadDiff()
   } catch (e) {
     // 分支系统未启用（feature 关闭）时静默降级
@@ -108,7 +109,7 @@ async function loadDiff() {
   loading.value = true
   try {
     const res = await api.branch.diff(props.docId, branchA.value, branchB.value)
-    lineDiffs.value = res.data?.data?.line_diff || []
+    lineDiffs.value = unwrap<any>(res)?.line_diff || []
   } catch (e) {
     toast.error('差异对比失败：' + (e.response?.data?.detail || e.message))
   } finally {
