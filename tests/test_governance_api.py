@@ -6,7 +6,7 @@ import json
 import httpx
 import pytest
 
-from api.deps import get_db
+from api.deps import get_db, verify_token
 from core.config_manager import config_manager
 from core.database import DatabaseManager
 from core.plugin_manager import PluginManager
@@ -199,6 +199,54 @@ async def test_plugin_revoke_audit_e2e_via_api(tmp_path, monkeypatch):
                 # limit 越界 fail-closed
                 bad = await client.get(f"/api/v1/plugins/{plugin_id}/audit?limit=0")
                 assert bad.status_code == 422
+    finally:
+        app.dependency_overrides.clear()
+        await db.close()
+
+
+@pytest.mark.asyncio
+async def test_auth_required_rejects_anonymous_and_allows_token(tmp_path, monkeypatch):
+    """P3/A8：开启 security.require_auth 后，未带 token 的 API 请求被 401 拒绝，
+    携带有效 token 通过——鉴权一致、fail-closed。
+
+    说明：api.deps.verify_token 是模块 import 期用 env 快照构造的闭包；测试直接
+    用 create_auth_dependency() 重建并覆写依赖，验证真实鉴权闭包行为。"""
+    from core.security import create_auth_dependency, generate_api_token
+
+    monkeypatch.setenv("AIILIE_SECURITY_REQUIRE_AUTH", "1")
+    monkeypatch.setenv("AIILIE_SECURITY_AUTH_SECRET", "p3-test-secret")
+    config_manager.reload()
+
+    # 重建鉴权闭包（读取当前 env），覆写全局依赖
+    auth_dep = create_auth_dependency()
+
+    db = DatabaseManager(db_path=tmp_path / "auth.db")
+    await db.initialize()
+    app = create_app()
+    app.dependency_overrides[get_db] = lambda: db
+    app.dependency_overrides[verify_token] = auth_dep
+    try:
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                # 无 token → 401（fail-closed）
+                anon = await client.get("/api/v1/plugins")
+                assert anon.status_code == 401
+
+                # 伪造/无效 token → 401
+                bad = await client.get(
+                    "/api/v1/plugins", headers={"X-API-Token": "forged.token.xxx"}
+                )
+                assert bad.status_code == 401
+
+                # 有效 token（服务端签发）→ 200
+                token = generate_api_token("p3-client")
+                ok = await client.get(
+                    "/api/v1/plugins", headers={"X-API-Token": token}
+                )
+                assert ok.status_code == 200
+                assert "data" in ok.json()  # /plugins 裸包络 {data:[...]}
     finally:
         app.dependency_overrides.clear()
         await db.close()
