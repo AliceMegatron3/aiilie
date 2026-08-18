@@ -52,6 +52,37 @@ jobs:
           npm test
           npm run build
 
+  # 浏览器端到端冒烟（独立 job）：后端启动 + playwright chromium。
+  # 仅 `--run-e2e` 下运行（test job 默认全量路径不拉浏览器，避免拖慢主流程）。
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install dependencies (dev incl. pytest-playwright)
+        run: uv sync --frozen
+
+      - name: Install Playwright chromium
+        run: uv run playwright install --with-deps chromium
+
+      - name: Start backend
+        run: |
+          uv run python main.py &
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/health/live >/dev/null; then echo "backend up"; exit 0; fi
+            sleep 2
+          done
+          echo "backend did not start" >&2; exit 1
+
+      - name: Run browser E2E smoke
+        env:
+          E2E_BASE_URL: "http://127.0.0.1:8000"
+        run: uv run python -m pytest tests/e2e --run-e2e -q -x
+
   # Windows 实机验证：Job Object 隔离 / EXE 构建（独立 job，不影响 ubuntu 流程）
   windows:
     runs-on: windows-latest
